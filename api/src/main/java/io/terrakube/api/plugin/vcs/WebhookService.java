@@ -44,6 +44,7 @@ public class WebhookService {
     ScheduleJobService scheduleJobService;
     ObjectMapper objectMapper;
     WorkspaceRepository workspaceRepository;
+    PrCommentService prCommentService;
 
     @Transactional
     public String processWebhook(String webhookId, String jsonPayload, Map<String, String> headers) {
@@ -119,19 +120,29 @@ public class WebhookService {
         return result;
     }
 
-    private void handlePrCommentCommand(WebhookResult webhookResult, Webhook webhook, Workspace workspace) throws Exception {
+    void handlePrCommentCommand(WebhookResult webhookResult, Webhook webhook, Workspace workspace) throws Exception {
         String command = webhookResult.getCommentCommand();
         log.info("PR comment command '{}' received for workspace {}", command, workspace.getName());
 
         WebhookEvent matchedEvent = findMatchingEvent(webhookResult, webhook);
 
         if ("plan".equals(command)) {
+            if (!matchedEvent.isPrWorkflowEnabled()) {
+                log.info("Ignoring PR plan comment for workspace {}: PR workflow is not enabled", workspace.getName());
+                return;
+            }
             log.info("PR comment plan for workspace {}, using template {}", workspace.getName(), matchedEvent.getTemplateId());
             Job savedJob = createAndScheduleJob(matchedEvent.getTemplateId(), webhookResult, workspace);
             savedJob.setPrNumber(webhookResult.getPrNumber() != null ? webhookResult.getPrNumber().intValue() : null);
             jobRepository.save(savedJob);
             sendCommitStatus(savedJob);
         } else if ("apply".equals(command)) {
+            Integer prNumber = webhookResult.getPrNumber() != null ? webhookResult.getPrNumber().intValue() : null;
+            if (!matchedEvent.isPrWorkflowEnabled() || !matchedEvent.isPrApplyEnabled()) {
+                log.info("Rejecting PR apply comment for workspace {}: apply via PR comment is not enabled", workspace.getName());
+                prCommentService.postApplyDisabledNotice(workspace, prNumber);
+                return;
+            }
             String templateId = workspace.getDefaultTemplate();
             if (templateId == null || templateId.isEmpty()) {
                 log.error("No default template configured for apply in PR workflow on workspace {}", workspace.getName());
@@ -142,7 +153,7 @@ public class WebhookService {
             workspace.setLockDescription("Locked by PR #" + webhookResult.getPrNumber() + " apply");
             workspaceRepository.save(workspace);
             Job savedJob = createAndScheduleJob(templateId, webhookResult, workspace);
-            savedJob.setPrNumber(webhookResult.getPrNumber() != null ? webhookResult.getPrNumber().intValue() : null);
+            savedJob.setPrNumber(prNumber);
             savedJob.setAutoApply(true);
             jobRepository.save(savedJob);
             sendCommitStatus(savedJob);

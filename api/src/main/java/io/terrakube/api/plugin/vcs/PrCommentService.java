@@ -7,6 +7,7 @@ import io.terrakube.api.repository.JobRepository;
 import io.terrakube.api.rs.job.Job;
 import io.terrakube.api.rs.job.JobStatus;
 import io.terrakube.api.rs.vcs.VcsType;
+import io.terrakube.api.rs.workspace.Workspace;
 
 import lombok.AllArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -72,6 +73,21 @@ public class PrCommentService {
     private String buildFailureMessage(Job job) {
         return "Failed to post comment on pull request #" + job.getPrNumber()
                 + ". Verify the VCS connection has write access to pull requests.";
+    }
+
+    public void postApplyDisabledNotice(Workspace workspace, Integer prNumber) {
+        if (prNumber == null || prNumber == 0) return;
+
+        Job transientJob = new Job();
+        transientJob.setWorkspace(workspace);
+        transientJob.setPrNumber(prNumber);
+
+        String markdown = "## Terrakube Apply\n\n" +
+                "⚠️ Apply via PR comment is not enabled for this workspace.\n\n" +
+                "Ask a workspace admin to enable **Allow Apply via PR Comment** in the webhook settings, " +
+                "or apply this plan from the Terrakube UI.\n";
+
+        postComment(transientJob, markdown);
     }
 
     private String postComment(Job job, String markdownComment) {
