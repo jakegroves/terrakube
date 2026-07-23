@@ -1,5 +1,7 @@
 package io.terrakube.api.plugin.vcs;
 
+import io.terrakube.api.plugin.storage.StorageTypeService;
+import io.terrakube.api.plugin.streaming.StreamingService;
 import io.terrakube.api.plugin.vcs.provider.bitbucket.BitBucketWebhookService;
 import io.terrakube.api.plugin.vcs.provider.github.GitHubWebhookService;
 import io.terrakube.api.plugin.vcs.provider.gitlab.GitLabWebhookService;
@@ -7,14 +9,19 @@ import io.terrakube.api.repository.JobRepository;
 import io.terrakube.api.rs.job.Job;
 import io.terrakube.api.rs.job.JobStatus;
 import io.terrakube.api.rs.vcs.VcsType;
+import io.terrakube.api.rs.job.step.Step;
 import io.terrakube.api.rs.workspace.Workspace;
 
 import lombok.AllArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 
+import java.nio.charset.StandardCharsets;
+import java.util.Comparator;
 import java.util.EnumSet;
 import java.util.Set;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 @AllArgsConstructor
 @Slf4j
@@ -23,19 +30,22 @@ public class PrCommentService {
 
     private static final int MAX_COMMENT_LENGTH = 60000;
     private static final Set<VcsType> PR_COMMENT_SUPPORTED_VCS = EnumSet.of(VcsType.GITHUB, VcsType.GITLAB, VcsType.BITBUCKET);
-    private static final java.util.regex.Pattern PLAN_SUMMARY_PATTERN = java.util.regex.Pattern.compile(
+    private static final Pattern PLAN_SUMMARY_PATTERN = Pattern.compile(
             "(Plan: \\d+ to add, \\d+ to change, \\d+ to destroy\\.|No changes\\. Your infrastructure matches the configuration\\.)");
-
+    private static final Pattern ANSI_PATTERN = Pattern.compile(
+            "[\\u001b\\u009b][\\[()#;?]*(?:[0-9]{1,4}(?:;[0-9]{0,4})*)?[0-9A-ORZcf-nq-uy=><~]");
 
     GitHubWebhookService gitHubWebhookService;
     GitLabWebhookService gitLabWebhookService;
     BitBucketWebhookService bitBucketWebhookService;
     JobRepository jobRepository;
+    StorageTypeService storageTypeService;
+    StreamingService streamingService;
 
     public void postPlanResult(Job job) {
         if (job.getPrNumber() == null || job.getPrNumber() == 0) return;
 
-        String planOutput = job.getTerraformPlan();
+        String planOutput = fetchStepOutputText(job);
         String markdownComment = formatPlanComment(job, planOutput);
 
         String commentId = attemptPostComment(job, markdownComment);
@@ -48,7 +58,7 @@ public class PrCommentService {
     public void postApplyResult(Job job) {
         if (job.getPrNumber() == null || job.getPrNumber() == 0) return;
 
-        String output = job.getOutput();
+        String output = fetchStepOutputText(job);
         String markdownComment = formatApplyComment(job, output);
         attemptPostComment(job, markdownComment);
         jobRepository.save(job);
@@ -76,6 +86,43 @@ public class PrCommentService {
     private String buildFailureMessage(Job job) {
         return "Failed to post comment on pull request #" + job.getPrNumber()
                 + ". Verify the VCS connection has write access to pull requests.";
+    }
+
+    /**
+     * job.getTerraformPlan() is a storage pointer to the binary .tfplan file, and
+     * job.getOutput() is just append-only step-completion markers - neither holds the
+     * human-readable console text. The real diff/summary text lives in the last step's
+     * console output, the same place the job details UI reads it from.
+     */
+    private String fetchStepOutputText(Job job) {
+        Step step = job.getStep() == null ? null : job.getStep().stream()
+                .max(Comparator.comparingInt(Step::getStepNumber))
+                .orElse(null);
+        if (step == null) {
+            return null;
+        }
+
+        try {
+            String stepId = step.getId().toString();
+            String liveLogs = streamingService.getCurrentLogs(stepId);
+            if (liveLogs != null && !liveLogs.isEmpty()) {
+                return stripAnsi(liveLogs);
+            }
+
+            byte[] storedOutput = storageTypeService.getStepOutput(
+                    job.getOrganization().getId().toString(), String.valueOf(job.getId()), stepId);
+            if (storedOutput == null || storedOutput.length == 0) {
+                return null;
+            }
+            return stripAnsi(new String(storedOutput, StandardCharsets.UTF_8));
+        } catch (Exception e) {
+            log.error("Error fetching step output for job {}: {}", job.getId(), e.getMessage());
+            return null;
+        }
+    }
+
+    private String stripAnsi(String text) {
+        return ANSI_PATTERN.matcher(text).replaceAll("");
     }
 
     public void postApplyDisabledNotice(Workspace workspace, Integer prNumber) {
@@ -132,7 +179,7 @@ public class PrCommentService {
         String icon = statusIcon(job.getStatus());
 
         if (planOutput != null && !planOutput.isEmpty()) {
-            java.util.regex.Matcher summaryMatcher = PLAN_SUMMARY_PATTERN.matcher(planOutput);
+            Matcher summaryMatcher = PLAN_SUMMARY_PATTERN.matcher(planOutput);
             if (summaryMatcher.find()) {
                 sb.append(icon).append(" ").append(summaryMatcher.group(1)).append("\n\n");
             }
