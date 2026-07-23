@@ -23,6 +23,9 @@ public class PrCommentService {
 
     private static final int MAX_COMMENT_LENGTH = 60000;
     private static final Set<VcsType> PR_COMMENT_SUPPORTED_VCS = EnumSet.of(VcsType.GITHUB, VcsType.GITLAB, VcsType.BITBUCKET);
+    private static final java.util.regex.Pattern PLAN_SUMMARY_PATTERN = java.util.regex.Pattern.compile(
+            "(Plan: \\d+ to add, \\d+ to change, \\d+ to destroy\\.|No changes\\. Your infrastructure matches the configuration\\.)");
+
 
     GitHubWebhookService gitHubWebhookService;
     GitLabWebhookService gitLabWebhookService;
@@ -108,6 +111,17 @@ public class PrCommentService {
         return commentId;
     }
 
+    private String statusIcon(JobStatus status) {
+        switch (status) {
+            case completed:
+                return "✅";
+            case failed:
+                return "❌";
+            default:
+                return "⚠️";
+        }
+    }
+
     private String formatPlanComment(Job job, String planOutput) {
         StringBuilder sb = new StringBuilder();
         sb.append("## Terrakube Plan Output\n\n");
@@ -115,20 +129,27 @@ public class PrCommentService {
         sb.append("**Status:** ").append(job.getStatus()).append("\n");
         sb.append("**Job:** #").append(job.getId()).append("\n\n");
 
+        String icon = statusIcon(job.getStatus());
+
         if (planOutput != null && !planOutput.isEmpty()) {
+            java.util.regex.Matcher summaryMatcher = PLAN_SUMMARY_PATTERN.matcher(planOutput);
+            if (summaryMatcher.find()) {
+                sb.append(icon).append(" ").append(summaryMatcher.group(1)).append("\n\n");
+            }
+
             String content = planOutput;
             if (content.length() > MAX_COMMENT_LENGTH) {
                 content = content.substring(0, MAX_COMMENT_LENGTH)
                         + "\n\n... (output truncated, see full output in Terrakube UI)";
             }
             sb.append("<details><summary>Show Plan</summary>\n\n");
-            sb.append("```hcl\n");
+            sb.append("```diff\n");
             sb.append(content);
             sb.append("\n```\n\n</details>\n\n");
         } else if (job.getStatus() == JobStatus.completed) {
-            sb.append("No changes detected.\n\n");
+            sb.append(icon).append(" No changes detected.\n\n");
         } else {
-            sb.append("Plan failed. Check the Terrakube UI for details.\n\n");
+            sb.append(icon).append(" Plan failed. Check the Terrakube UI for details.\n\n");
         }
 
         sb.append("---\n");
@@ -145,13 +166,17 @@ public class PrCommentService {
         sb.append("**Status:** ").append(job.getStatus()).append("\n");
         sb.append("**Job:** #").append(job.getId()).append("\n\n");
 
+        String icon = statusIcon(job.getStatus());
+        String summary = job.getStatus() == JobStatus.completed ? "Apply complete" : "Apply failed";
+        sb.append(icon).append(" ").append(summary).append("\n\n");
+
         if (output != null && !output.isEmpty()) {
             String content = output;
             if (content.length() > MAX_COMMENT_LENGTH) {
                 content = content.substring(0, MAX_COMMENT_LENGTH)
                         + "\n\n... (output truncated, see full output in Terrakube UI)";
             }
-            sb.append("<details><summary>Show Output</summary>\n\n");
+            sb.append("<details><summary>Show Apply Output</summary>\n\n");
             sb.append("```\n");
             sb.append(content);
             sb.append("\n```\n\n</details>\n");

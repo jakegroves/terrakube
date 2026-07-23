@@ -299,4 +299,112 @@ public class PrCommentServiceTest {
         assertNull(job.getPrCommentError());
         verify(gitHubWebhookService, never()).postPrComment(any(), any());
     }
+
+    @Test
+    public void postPlanResultUsesDiffFenceForPlanBody() {
+        Job job = createJob(VcsType.GITHUB, 5, JobStatus.completed);
+        job.setTerraformPlan("+ resource \"aws_instance\" \"example\" {\n+   ami = \"ami-123\"\n+ }");
+
+        doReturn("12345").when(gitHubWebhookService).postPrComment(any(), any());
+        doReturn(job).when(jobRepository).save(any());
+
+        subject.postPlanResult(job);
+
+        ArgumentCaptor<String> markdownCaptor = ArgumentCaptor.forClass(String.class);
+        verify(gitHubWebhookService, times(1)).postPrComment(eq(job), markdownCaptor.capture());
+
+        assertTrue(markdownCaptor.getValue().contains("```diff"));
+    }
+
+    @Test
+    public void postPlanResultExtractsChangeSummaryLine() {
+        Job job = createJob(VcsType.GITHUB, 5, JobStatus.completed);
+        job.setTerraformPlan("Some preamble\n\nPlan: 2 to add, 1 to change, 0 to destroy.\n");
+
+        doReturn("12345").when(gitHubWebhookService).postPrComment(any(), any());
+        doReturn(job).when(jobRepository).save(any());
+
+        subject.postPlanResult(job);
+
+        ArgumentCaptor<String> markdownCaptor = ArgumentCaptor.forClass(String.class);
+        verify(gitHubWebhookService, times(1)).postPrComment(eq(job), markdownCaptor.capture());
+
+        assertTrue(markdownCaptor.getValue().contains("✅ Plan: 2 to add, 1 to change, 0 to destroy."));
+    }
+
+    @Test
+    public void postPlanResultExtractsNoChangesSummaryLine() {
+        Job job = createJob(VcsType.GITHUB, 5, JobStatus.completed);
+        job.setTerraformPlan("No changes. Your infrastructure matches the configuration.\n");
+
+        doReturn("12345").when(gitHubWebhookService).postPrComment(any(), any());
+        doReturn(job).when(jobRepository).save(any());
+
+        subject.postPlanResult(job);
+
+        ArgumentCaptor<String> markdownCaptor = ArgumentCaptor.forClass(String.class);
+        verify(gitHubWebhookService, times(1)).postPrComment(eq(job), markdownCaptor.capture());
+
+        assertTrue(markdownCaptor.getValue().contains("✅ No changes. Your infrastructure matches the configuration."));
+    }
+
+    @Test
+    public void postPlanResultOmitsSummaryLineWhenPatternNotFound() {
+        Job job = createJob(VcsType.GITHUB, 5, JobStatus.completed);
+        job.setTerraformPlan("Some unusual output with no recognizable summary");
+
+        doReturn("12345").when(gitHubWebhookService).postPrComment(any(), any());
+        doReturn(job).when(jobRepository).save(any());
+
+        subject.postPlanResult(job);
+
+        ArgumentCaptor<String> markdownCaptor = ArgumentCaptor.forClass(String.class);
+        verify(gitHubWebhookService, times(1)).postPrComment(eq(job), markdownCaptor.capture());
+
+        assertTrue(markdownCaptor.getValue().contains("<details><summary>Show Plan</summary>"));
+        assertFalse(markdownCaptor.getValue().contains("✅ Plan:"));
+    }
+
+    @Test
+    public void postPlanResultUsesFailedIconWhenPlanFailed() {
+        Job job = createJob(VcsType.GITHUB, 5, JobStatus.failed);
+        job.setTerraformPlan(null);
+
+        doReturn("12345").when(gitHubWebhookService).postPrComment(any(), any());
+        doReturn(job).when(jobRepository).save(any());
+
+        subject.postPlanResult(job);
+
+        ArgumentCaptor<String> markdownCaptor = ArgumentCaptor.forClass(String.class);
+        verify(gitHubWebhookService, times(1)).postPrComment(eq(job), markdownCaptor.capture());
+
+        assertTrue(markdownCaptor.getValue().contains("❌ Plan failed"));
+    }
+
+    @Test
+    public void postApplyResultUsesCompleteIconWhenCompleted() {
+        Job job = createJob(VcsType.GITHUB, 5, JobStatus.completed);
+        job.setOutput("Apply complete! Resources: 1 added, 0 changed, 0 destroyed.");
+
+        subject.postApplyResult(job);
+
+        ArgumentCaptor<String> markdownCaptor = ArgumentCaptor.forClass(String.class);
+        verify(gitHubWebhookService, times(1)).postPrComment(eq(job), markdownCaptor.capture());
+
+        assertTrue(markdownCaptor.getValue().contains("✅ Apply complete"));
+        assertTrue(markdownCaptor.getValue().contains("<details><summary>Show Apply Output</summary>"));
+    }
+
+    @Test
+    public void postApplyResultUsesFailedIconWhenFailed() {
+        Job job = createJob(VcsType.GITHUB, 5, JobStatus.failed);
+        job.setOutput("Error: something went wrong");
+
+        subject.postApplyResult(job);
+
+        ArgumentCaptor<String> markdownCaptor = ArgumentCaptor.forClass(String.class);
+        verify(gitHubWebhookService, times(1)).postPrComment(eq(job), markdownCaptor.capture());
+
+        assertTrue(markdownCaptor.getValue().contains("❌ Apply failed"));
+    }
 }
