@@ -1,4 +1,4 @@
-import { Layout, ConfigProvider } from "antd";
+import { Layout, ConfigProvider, theme } from "antd";
 import { lazy, Suspense, useState, useEffect, type Dispatch, type SetStateAction } from "react";
 import {
   RouterProvider,
@@ -8,6 +8,7 @@ import {
   useNavigate,
   useOutletContext,
   useLocation,
+  useNavigation,
 } from "react-router-dom";
 import { useAuth } from "../../config/authConfig";
 import { getBasePath } from "../../config/basePath";
@@ -123,6 +124,21 @@ const ModuleDetailsRoute = () => {
   return <ModuleDetails organizationName={organizationName} />;
 };
 
+const NavigationProgressBar = () => {
+  const navigation = useNavigation();
+  const { token } = theme.useToken();
+  const isNavigating = navigation.state !== "idle";
+
+  return (
+    <div className="nav-progress-track" aria-hidden={!isNavigating}>
+      <div
+        className={isNavigating ? "nav-progress-bar nav-progress-bar-active" : "nav-progress-bar"}
+        style={{ background: token.colorPrimary }}
+      />
+    </div>
+  );
+};
+
 const AppLayout = () => {
   const navigate = useNavigate();
   const location = useLocation();
@@ -191,6 +207,7 @@ const AppLayout = () => {
 
   return (
     <ConfigProvider theme={getThemeConfig(colorScheme, themeMode)}>
+      <NavigationProgressBar />
       <Layout className="layout mh-100">
         <Header>
           <a onClick={() => navigate("/")} style={{ cursor: "pointer" }}>

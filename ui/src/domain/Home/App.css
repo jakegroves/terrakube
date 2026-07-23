@@ -57,3 +57,49 @@
 .paragraph {
   margin: 0;
 }
+
+.nav-progress-track {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 3px;
+  z-index: 2000;
+  pointer-events: none;
+  overflow: hidden;
+}
+
+.nav-progress-bar {
+  height: 100%;
+  width: 0%;
+  opacity: 0;
+  transition: opacity 0.15s ease;
+}
+
+.nav-progress-bar-active {
+  opacity: 1;
+  animation: nav-progress-indeterminate 1.1s ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .nav-progress-bar-active {
+    animation: none;
+    opacity: 1;
+    width: 100%;
+  }
+}
+
+@keyframes nav-progress-indeterminate {
+  0% {
+    width: 0%;
+    margin-left: 0%;
+  }
+  50% {
+    width: 60%;
+    margin-left: 20%;
+  }
+  100% {
+    width: 0%;
+    margin-left: 100%;
+  }
+}
