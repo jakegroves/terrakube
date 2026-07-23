@@ -11,13 +11,12 @@ import {
   UserOutlined,
 } from "@ant-design/icons";
 import { Alert, Avatar, Button, Card, Collapse, message, Radio, RadioChangeEvent, Space, Spin, Tag, Typography } from "antd";
-import { AxiosResponse } from "axios";
+import { useQuery } from "@tanstack/react-query";
 import parse from "html-react-parser";
 import { DateTime } from "luxon";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useState } from "react";
 import { ORGANIZATION_ARCHIVE } from "../../config/actionTypes";
 import axiosInstance, { axiosClient } from "../../config/axiosConfig";
-import { useAbortController, usePolling } from "../../hooks";
 import { Job, JobStep } from "../types";
 import { TerminalOutput } from "./TerminalOutput";
 import { getJobOutputRequestUrl, getPublicApiOrigin, isTerrakubeApiUrl } from "./outputUrl";
@@ -39,27 +38,27 @@ type IncompleteVariableGuard = {
   rawMessage: string;
 };
 
+type JobWorkspaceInfo = {
+  source?: string;
+  branch?: string;
+  vcsId?: string;
+  vcsName?: string;
+};
+
+type JobQueryData = {
+  job: { data: Job; included: any[] };
+  steps: JobStep[];
+  workspaceInfo?: JobWorkspaceInfo;
+};
+
+type JobContextQueryData = {
+  uiTemplates: Record<string, string>;
+  planStructuredOutput: StructuredPlanOutputByStep;
+};
+
 export const DetailsJob = ({ jobId }: Props) => {
   const organizationId = sessionStorage.getItem(ORGANIZATION_ARCHIVE);
-  const [loading, setLoading] = useState(false);
-  const [job, setJob] = useState<AxiosResponse<Job>>();
-  const [workspaceSource, setWorkspaceSource] = useState<string>();
-  const [workspaceDefaultBranch, setWorkspaceDefaultBranch] = useState<string>();
-  const [workspaceVcsId, setWorkspaceVcsId] = useState<string>();
-  const [workspaceVcsName, setWorkspaceVcsName] = useState<string>();
-  const [steps, setSteps] = useState<JobStep[]>([]);
   const [uiType, setUIType] = useState("structured");
-  const [uiTemplates, setUITemplates] = useState<Record<string, string>>({});
-  const [planStructuredOutput, setPlanStructuredOutput] = useState<StructuredPlanOutputByStep>({});
-  const { getSignal: getJobSignal, abort: abortJobRequests } = useAbortController();
-  const { getSignal: getContextSignal, abort: abortContextRequests } = useAbortController();
-  const jobRequestRef = useRef(0);
-  const contextRequestRef = useRef(0);
-  const pollRequestRef = useRef(0);
-
-  const isAbortError = (error: unknown) => {
-    return error instanceof Error && (error.name === "AbortError" || error.name === "CanceledError");
-  };
 
   const isTerminalJobStatus = (status?: string) => {
     if (!status) {
@@ -256,7 +255,7 @@ export const DetailsJob = ({ jobId }: Props) => {
       })
       .then(() => {
         message.success("Job Cancelled Succesfully");
-        loadJob();
+        jobQuery.refetch();
       })
       .catch((error) => {
         message.error("Could not cancel job: " + error.response.data.errors[0].detail);
@@ -338,19 +337,12 @@ export const DetailsJob = ({ jobId }: Props) => {
     return 0;
   };
 
-  const loadJob = useCallback(async () => {
-    const requestId = ++jobRequestRef.current;
-    const signal = getJobSignal();
-
-    try {
+  const jobQuery = useQuery<JobQueryData>({
+    queryKey: ["job", organizationId, jobId],
+    queryFn: async ({ signal }) => {
       const response = await axiosInstance.get(`organization/${organizationId}/job/${jobId}?include=step,workspace`, {
         signal,
       });
-      if (requestId !== jobRequestRef.current) {
-        return;
-      }
-
-      setJob(response.data);
 
       const included = response.data.included ?? [];
       const stepEntries = included.filter((item: any) => item.type === "step");
@@ -371,7 +363,7 @@ export const DetailsJob = ({ jobId }: Props) => {
         }))
       );
 
-      const workspacePromise = workspaceEntry
+      const workspacePromise: Promise<JobWorkspaceInfo | undefined> = workspaceEntry
         ? (async () => {
             const workspaceResponse = await axiosInstance.get(
               `organization/${organizationId}/workspace/${workspaceEntry.id}`,
@@ -401,77 +393,44 @@ export const DetailsJob = ({ jobId }: Props) => {
           })()
         : Promise.resolve(undefined);
 
-      const [jobSteps, workspaceData] = await Promise.all([stepsPromise, workspacePromise]);
-      if (requestId !== jobRequestRef.current) {
-        return;
-      }
+      const [jobSteps, workspaceInfo] = await Promise.all([stepsPromise, workspacePromise]);
 
-      if (workspaceData) {
-        setWorkspaceSource(workspaceData.source);
-        setWorkspaceDefaultBranch(workspaceData.branch);
-        setWorkspaceVcsId(workspaceData.vcsId);
-        setWorkspaceVcsName(workspaceData.vcsName);
-      } else {
-        setWorkspaceSource(undefined);
-        setWorkspaceDefaultBranch(undefined);
-        setWorkspaceVcsId(undefined);
-        setWorkspaceVcsName(undefined);
-      }
-
-      setSteps(jobSteps.sort(sortbyName));
-    } catch (error) {
-      if (isAbortError(error)) return;
-    }
-  }, [getJobSignal, jobId, organizationId]);
-
-  const loadContext = useCallback(async () => {
-    const requestId = ++contextRequestRef.current;
-    const signal = getContextSignal();
-    const apiOrigin = getPublicApiOrigin();
-
-    try {
-      const response = await axiosInstance.get(`${apiOrigin}/context/v1/${jobId}`, { signal });
-      if (requestId !== contextRequestRef.current) {
-        return;
-      }
-      setUITemplates(normalizeUITemplates(response?.data?.terrakubeUI));
-      setPlanStructuredOutput(normalizeStructuredPlanOutput(response?.data?.planStructuredOutput));
-    } catch (error) {
-      if (isAbortError(error)) return;
-    }
-  }, [getContextSignal, jobId]);
-
-  const refreshJobDetails = useCallback(async () => {
-    const requestId = ++pollRequestRef.current;
-    await Promise.all([loadJob(), loadContext()]);
-    if (requestId === pollRequestRef.current) {
-      setLoading(false);
-    }
-  }, [loadContext, loadJob]);
-
-  useEffect(() => {
-    setLoading(true);
-    abortJobRequests();
-    abortContextRequests();
-
-    if (!jobId) {
-      setLoading(false);
-      return;
-    }
-
-    void refreshJobDetails();
-  }, [abortContextRequests, abortJobRequests, jobId, refreshJobDetails]);
-
-  usePolling(
-    () => {
-      void refreshJobDetails();
+      return {
+        job: response.data,
+        steps: jobSteps.sort(sortbyName),
+        workspaceInfo,
+      };
     },
-    {
-      interval: 5000,
-      enabled: Boolean(jobId) && !isTerminalJobStatus(job?.data?.attributes.status),
-      immediate: false,
-    }
-  );
+    enabled: Boolean(jobId),
+    refetchInterval: (query) => (isTerminalJobStatus(query.state.data?.job?.data?.attributes?.status) ? false : 5000),
+    refetchIntervalInBackground: false,
+  });
+
+  const contextQuery = useQuery({
+    queryKey: ["jobContext", jobId],
+    queryFn: async ({ signal }): Promise<JobContextQueryData> => {
+      const apiOrigin = getPublicApiOrigin();
+      const response = await axiosInstance.get(`${apiOrigin}/context/v1/${jobId}`, { signal });
+      return {
+        uiTemplates: normalizeUITemplates(response?.data?.terrakubeUI),
+        planStructuredOutput: normalizeStructuredPlanOutput(response?.data?.planStructuredOutput),
+      };
+    },
+    enabled: Boolean(jobId),
+    refetchInterval: () => (isTerminalJobStatus(jobQuery.data?.job?.data?.attributes?.status) ? false : 5000),
+    refetchIntervalInBackground: false,
+  });
+
+  const job = jobQuery.data?.job;
+  const steps = jobQuery.data?.steps ?? [];
+  const workspaceSource = jobQuery.data?.workspaceInfo?.source;
+  const workspaceDefaultBranch = jobQuery.data?.workspaceInfo?.branch;
+  const workspaceVcsId = jobQuery.data?.workspaceInfo?.vcsId;
+  const workspaceVcsName = jobQuery.data?.workspaceInfo?.vcsName;
+  const uiTemplates = contextQuery.data?.uiTemplates ?? {};
+  const planStructuredOutput = contextQuery.data?.planStructuredOutput ?? {};
+  const loading = jobQuery.isLoading;
+
   return (
     <div style={{ marginTop: "14px" }}>
       {loading || !job?.data || !steps ? (

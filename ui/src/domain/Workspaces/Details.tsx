@@ -37,8 +37,8 @@ import {
 } from "antd";
 
 import { DateTime } from "luxon";
-import { lazy, Suspense, useEffect, useState } from "react";
-import { usePolling } from "../../hooks";
+import { lazy, Suspense, useEffect, useRef, useState } from "react";
+import { useQuery } from "@tanstack/react-query";
 import { IconContext } from "react-icons";
 import { BiTerminal } from "react-icons/bi";
 import { FiGitCommit } from "react-icons/fi";
@@ -121,17 +121,14 @@ export const WorkspaceDetails = ({ setOrganizationName, selectedTab }: Props) =>
   const [jobs, setJobs] = useState<FlatJob[]>([]);
   const [stateDetailsVisible, setStateDetailsVisible] = useState(false);
   const [jobId, setJobId] = useState<string>();
-  const [loading, setLoading] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [jobVisible, setJobVisible] = useState(false);
   const [organizationNameLocal, setOrganizationNameLocal] = useState<string>();
   const [workspaceName, setWorkspaceName] = useState("...");
   const [activeKey, setActiveKey] = useState(selectedTab !== null ? selectedTab : "1");
-  const [templates, setTemplates] = useState([]);
   const [lastRun, setLastRun] = useState("");
   const [executionMode, setExecutionMode] = useState("...");
   const [agent, setAgent] = useState("...");
-  const [orgTemplates, setOrgTemplates] = useState([]);
   const [vcsProvider, setVCSProvider] = useState<VcsType>(VcsType.UNKNOWN);
   const [resources, setResources] = useState<Resource[]>([]);
   const [outputs, setOutputs] = useState<StateOutputVariableWithName[]>([]);
@@ -230,17 +227,6 @@ export const WorkspaceDetails = ({ setOrganizationName, selectedTab }: Props) =>
     switchKey(key);
   };
 
-  const loadOrgTemplates = () => {
-    axiosInstance
-      .get(`organization/${organizationId}/template`)
-      .then((response) => {
-        setOrgTemplates(response.data.data);
-      })
-      .catch((err) => {
-        console.error("Failed to load org templates:", err);
-      });
-  };
-
   const showDrawer = (record: Resource) => {
     setOpen(true);
     setResource(record);
@@ -306,23 +292,12 @@ export const WorkspaceDetails = ({ setOrganizationName, selectedTab }: Props) =>
     }
   };
 
-  useEffect(() => {
-    setLoading(true);
-    setLoadError(null);
-    loadWorkspace(true, true, true);
-    loadPermissionSet();
-    loadOrgTemplates();
-    // Polling is now handled by usePolling hook below
-  }, [id]);
+  const shouldOpenRunIdRef = useRef(true);
 
-  // Polling for workspace updates
-  usePolling(
-    () => {
-      loadWorkspace(false, false, false);
-      loadPermissionSet();
-    },
-    { interval: 10000, enabled: Boolean(id), immediate: false }
-  );
+  useEffect(() => {
+    setLoadError(null);
+    shouldOpenRunIdRef.current = true;
+  }, [id]);
 
   const changeJob = (id: string) => {
     setJobId(id);
@@ -330,117 +305,142 @@ export const WorkspaceDetails = ({ setOrganizationName, selectedTab }: Props) =>
     setActiveKey("2");
   };
 
-  const loadPermissionSet = () => {
-    const url = `${
-      new URL(window._env_.REACT_APP_TERRAKUBE_API_URL).origin
-    }/access-token/v1/teams/permissions/organization/${organizationId}`;
-    axiosInstance
-      .get(url)
-      .then((response) => {
-        setManageState(response.data.manageState);
-        setManageWorkspace(response.data.manageWorkspace);
-        setPlanJob(response.data.planJob);
-        setApproveJob(response.data.approveJob);
+  const apiOrigin = new URL(window._env_.REACT_APP_TERRAKUBE_API_URL).origin;
 
-        if (id !== undefined && id !== null) {
-          const urlWorkspaceAccess = `${
-            new URL(window._env_.REACT_APP_TERRAKUBE_API_URL).origin
-          }/access-token/v1/teams/permissions/organization/${organizationId}/workspace/${id}`;
-          axiosInstance
-            .get(urlWorkspaceAccess)
-            .then((response) => {
-              setManageState(response.data.manageState);
-              setManageWorkspace(response.data.manageWorkspace);
-              setPlanJob(response.data.planJob);
-              setApproveJob(response.data.approveJob);
-            })
-            .catch((err) => {
-              console.error("Failed to load workspace permissions:", err);
-            });
-        }
-      })
-      .catch((err) => {
-        console.error("Failed to load org permissions:", err);
-      });
+  // Workspace-scoped permissions supersede the org-level ones below whenever a
+  // workspace id is present (always true on this page), but both are kept and
+  // fetched in parallel to match the API's existing access-check behavior.
+  const permissionsQuery = useQuery({
+    queryKey: ["workspacePermissions", organizationId, id],
+    queryFn: async () => {
+      const [orgPermissions, workspacePermissions] = await Promise.all([
+        axiosInstance.get(`${apiOrigin}/access-token/v1/teams/permissions/organization/${organizationId}`),
+        axiosInstance.get(
+          `${apiOrigin}/access-token/v1/teams/permissions/organization/${organizationId}/workspace/${id}`
+        ),
+      ]);
+      return workspacePermissions.data ?? orgPermissions.data;
+    },
+    enabled: Boolean(id),
+    refetchInterval: 10000,
+    refetchIntervalInBackground: false,
+  });
+
+  useEffect(() => {
+    if (!permissionsQuery.data) return;
+    setManageState(permissionsQuery.data.manageState);
+    setManageWorkspace(permissionsQuery.data.manageWorkspace);
+    setPlanJob(permissionsQuery.data.planJob);
+    setApproveJob(permissionsQuery.data.approveJob);
+  }, [permissionsQuery.data]);
+
+  const loadPermissionSet = () => {
+    permissionsQuery.refetch();
   };
 
-  const loadWorkspace = (_loadVersions: boolean, _loadWebhook = false, _loadPermissionSet = false) => {
-    let url = `organization/${organizationId}/workspace/${id}?include=job,variable,history,schedule,vcs,agent,organization,reference`;
-    if (_loadWebhook) url += ",webhook";
-    axiosInstance
-      .get(`organization/${organizationId}/template`)
-      .then((template) => {
-        setTemplates(template.data.data);
-        axiosInstance
-          .get(
-            `organization/${organizationId}/workspace/${id}?include=job,variable,history,schedule,vcs,agent,organization,webhook,reference,project`
-          )
-          .then(async (response) => {
-            if (_loadPermissionSet) loadPermissionSet();
+  // Org templates: fetched once and cached, not re-fetched on every 10s poll tick.
+  const templatesQuery = useQuery({
+    queryKey: ["organizationTemplates", organizationId],
+    queryFn: () => axiosInstance.get(`organization/${organizationId}/template`).then((response) => response.data.data),
+    enabled: Boolean(organizationId),
+    staleTime: 5 * 60 * 1000,
+  });
+  const templates = templatesQuery.data;
 
-            setWorkspace(response.data.data);
+  const workspaceQuery = useQuery({
+    queryKey: ["workspace", organizationId, id],
+    queryFn: () =>
+      axiosInstance
+        .get(
+          `organization/${organizationId}/workspace/${id}?include=job,variable,history,schedule,vcs,agent,organization,webhook,reference,project&fields[job]=status,createdDate,createdBy,updatedDate,commitId,templateReference,via`
+        )
+        .then((response) => response.data),
+    enabled: Boolean(id),
+    refetchInterval: 10000,
+    refetchIntervalInBackground: false,
+  });
 
-            if (response.data.included) {
-              await setupWorkspaceIncludes(
-                response.data,
-                setVariables,
-                setJobs,
-                setEnvVariables,
-                setHistory,
-                setSchedule,
-                template.data.data,
-                setLastRun,
-                setVCSProvider,
-                setCurrentStateId,
-                currentStateId,
-                axiosInstance,
-                setResources,
-                setOutputs,
-                setAgent,
-                _loadWebhook,
-                setContextState,
-                setCollectionVariables,
-                setCollectionEnvVariables,
-                setGlobalVariables,
-                setGlobalEnvVariables
-              );
-            }
+  useEffect(() => {
+    if (workspaceQuery.isError) {
+      setLoadError(getErrorMessage(workspaceQuery.error));
+      return;
+    }
+    if (templatesQuery.isError) {
+      setLoadError(getErrorMessage(templatesQuery.error));
+      return;
+    }
 
-            const organization: Organization | undefined = response.data.included?.find(
-              (item: IncludedItem<Organization>) => item.type === "organization"
-            );
-            if (organization) {
-              const organizationName = organization.attributes.name;
-              setOrganizationName(organizationName);
-              sessionStorage.setItem(ORGANIZATION_NAME, organizationName);
-            }
+    const data = workspaceQuery.data;
+    if (!data || !templates) return;
 
-            const proj = response.data.included?.find((item: any) => item.type === "project");
-            if (proj) {
-              setProjectName(proj.attributes?.name ?? null);
-              setProjectId(proj.id ?? null);
-            } else {
-              setProjectName(null);
-              setProjectId(null);
-            }
-            setOrganizationNameLocal(sessionStorage.getItem(ORGANIZATION_NAME)!);
-            setWorkspaceName(response.data.data.attributes.name);
-            setExecutionMode(response.data.data.attributes.executionMode);
-            if (runid && _loadVersions) changeJob(runid); // if runid is provided, show the job details
-            fetchActions();
-            setLoadError(null);
-          })
-          .catch((err) => {
-            setLoadError(getErrorMessage(err));
-          })
-          .finally(() => {
-            setLoading(false);
-          });
-      })
-      .catch((err) => {
-        setLoadError(getErrorMessage(err));
-        setLoading(false);
-      });
+    let cancelled = false;
+    (async () => {
+      setWorkspace(data.data);
+
+      if (data.included) {
+        await setupWorkspaceIncludes(
+          data,
+          setVariables,
+          setJobs,
+          setEnvVariables,
+          setHistory,
+          setSchedule,
+          templates,
+          setLastRun,
+          setVCSProvider,
+          setCurrentStateId,
+          currentStateId,
+          axiosInstance,
+          setResources,
+          setOutputs,
+          setAgent,
+          true,
+          setContextState,
+          setCollectionVariables,
+          setCollectionEnvVariables,
+          setGlobalVariables,
+          setGlobalEnvVariables
+        );
+      }
+      if (cancelled) return;
+
+      const organization: Organization | undefined = data.included?.find(
+        (item: IncludedItem<Organization>) => item.type === "organization"
+      );
+      if (organization) {
+        const organizationName = organization.attributes.name;
+        setOrganizationName(organizationName);
+        sessionStorage.setItem(ORGANIZATION_NAME, organizationName);
+      }
+
+      const proj = data.included?.find((item: any) => item.type === "project");
+      if (proj) {
+        setProjectName(proj.attributes?.name ?? null);
+        setProjectId(proj.id ?? null);
+      } else {
+        setProjectName(null);
+        setProjectId(null);
+      }
+      setOrganizationNameLocal(sessionStorage.getItem(ORGANIZATION_NAME)!);
+      setWorkspaceName(data.data.attributes.name);
+      setExecutionMode(data.data.attributes.executionMode);
+      if (runid && shouldOpenRunIdRef.current) {
+        shouldOpenRunIdRef.current = false;
+        changeJob(runid); // if runid is provided, show the job details
+      }
+      fetchActions();
+      setLoadError(null);
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [workspaceQuery.data, workspaceQuery.isError, templatesQuery.isError, templates]);
+
+  const loadWorkspace = (_loadVersions: boolean, _loadPermissionSet = false) => {
+    if (_loadVersions) shouldOpenRunIdRef.current = true;
+    if (_loadPermissionSet) loadPermissionSet();
+    workspaceQuery.refetch();
   };
 
   const handleClickSettings = () => {
@@ -501,7 +501,7 @@ export const WorkspaceDetails = ({ setOrganizationName, selectedTab }: Props) =>
               showIcon
               style={{ margin: "20px 0" }}
             />
-          ) : loading || !workspace || !variables || !jobs ? (
+          ) : workspaceQuery.isLoading || !workspace || !variables || !jobs ? (
             <Spin spinning={true} tip="Loading Workspace...">
               <p style={{ marginTop: "50px" }}></p>
             </Spin>
@@ -843,7 +843,7 @@ export const WorkspaceDetails = ({ setOrganizationName, selectedTab }: Props) =>
                     <WorkspaceSettings
                       workspace={workspace}
                       vcsProvider={vcsProvider}
-                      orgTemplates={orgTemplates}
+                      orgTemplates={templates ?? []}
                       manageWorkspace={manageWorkspace}
                       onWorkspaceUpdate={() => loadWorkspace(false)}
                     />
