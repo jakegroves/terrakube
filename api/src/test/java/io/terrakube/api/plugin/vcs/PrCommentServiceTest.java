@@ -407,4 +407,40 @@ public class PrCommentServiceTest {
 
         assertTrue(markdownCaptor.getValue().contains("❌ Apply failed"));
     }
+
+    @Test
+    public void postApplyDisabledNoticeSkipsWhenPrNumberIsNull() {
+        Workspace workspace = createJob(VcsType.GITHUB, 5, JobStatus.completed).getWorkspace();
+
+        subject.postApplyDisabledNotice(workspace, null);
+
+        verify(gitHubWebhookService, never()).postPrComment(any(), any());
+    }
+
+    @Test
+    public void postApplyDisabledNoticeSkipsWhenPrNumberIsZero() {
+        Workspace workspace = createJob(VcsType.GITHUB, 5, JobStatus.completed).getWorkspace();
+
+        subject.postApplyDisabledNotice(workspace, 0);
+
+        verify(gitHubWebhookService, never()).postPrComment(any(), any());
+    }
+
+    @Test
+    public void postApplyDisabledNoticePostsNoticeWithWorkspaceAndPrNumber() {
+        Workspace workspace = createJob(VcsType.GITHUB, 5, JobStatus.completed).getWorkspace();
+
+        doReturn("999").when(gitHubWebhookService).postPrComment(any(), any());
+
+        subject.postApplyDisabledNotice(workspace, 7);
+
+        ArgumentCaptor<Job> jobCaptor = ArgumentCaptor.forClass(Job.class);
+        ArgumentCaptor<String> markdownCaptor = ArgumentCaptor.forClass(String.class);
+        verify(gitHubWebhookService, times(1)).postPrComment(jobCaptor.capture(), markdownCaptor.capture());
+
+        assertEquals(workspace, jobCaptor.getValue().getWorkspace());
+        assertEquals(Integer.valueOf(7), jobCaptor.getValue().getPrNumber());
+        assertTrue(markdownCaptor.getValue().contains("Allow Apply via PR Comment"));
+        assertTrue(markdownCaptor.getValue().contains("not enabled"));
+    }
 }
