@@ -656,6 +656,40 @@ public class GitLabWebhookService extends WebhookServiceBase {
         return null;
     }
 
+    public boolean updateMergeRequestNote(Job job, String noteId, String markdownBody) {
+        Workspace workspace = job.getWorkspace();
+        try {
+            String ownerAndRepo = extractOwnerAndRepoGitlab(workspace.getSource());
+            String projectId = getGitlabProjectId(ownerAndRepo, workspace.getVcs().getAccessToken(), workspace.getVcs().getApiUrl());
+
+            WebClient webClient = webClientBuilder
+                    .baseUrl(workspace.getVcs().getApiUrl())
+                    .defaultHeader(HttpHeaders.CONTENT_TYPE, "application/json")
+                    .defaultHeader(HttpHeaders.AUTHORIZATION, "Bearer " + workspace.getVcs().getAccessToken())
+                    .clientConnector(new ReactorClientHttpConnector(HttpClient.create().proxyWithSystemProperties()))
+                    .build();
+
+            Map<String, Object> requestBody = new HashMap<>();
+            requestBody.put("body", markdownBody);
+
+            webClient.put()
+                    .uri("/projects/{id}/merge_requests/{iid}/notes/{noteId}", projectId, job.getPrNumber(), noteId)
+                    .bodyValue(requestBody)
+                    .retrieve()
+                    .bodyToMono(String.class)
+                    .block();
+
+            log.info("MR note {} updated successfully on MR !{} in workspace {}", noteId, job.getPrNumber(), workspace.getName());
+            return true;
+        } catch (Exception e) {
+            if (e instanceof InterruptedException) {
+                Thread.currentThread().interrupt();
+            }
+            log.error("Error updating MR note {} on MR !{} in workspace {}", noteId, job.getPrNumber(), workspace.getName(), e);
+            return false;
+        }
+    }
+
     public void sendCommitStatus(Job job, JobStatus jobStatus) {
         Workspace workspace = job.getWorkspace();
         String jobUrl = String.format("%s/organizations/%s/workspaces/%s/runs/%s", uiUrl,

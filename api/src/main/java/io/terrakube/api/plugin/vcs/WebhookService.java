@@ -109,6 +109,7 @@ public class WebhookService {
 
                 if (matchedEvent.isPrWorkflowEnabled() && webhookResult.getPrNumber() != null) {
                     savedJob.setPrNumber(webhookResult.getPrNumber().intValue());
+                    savedJob.setPrApplyEnabled(matchedEvent.isPrApplyEnabled());
                     jobRepository.save(savedJob);
                 }
 
@@ -134,6 +135,7 @@ public class WebhookService {
             log.info("PR comment plan for workspace {}, using template {}", workspace.getName(), matchedEvent.getTemplateId());
             Job savedJob = createAndScheduleJob(matchedEvent.getTemplateId(), webhookResult, workspace);
             savedJob.setPrNumber(webhookResult.getPrNumber() != null ? webhookResult.getPrNumber().intValue() : null);
+            savedJob.setPrApplyEnabled(matchedEvent.isPrApplyEnabled());
             jobRepository.save(savedJob);
             sendCommitStatus(savedJob);
         } else if ("apply".equals(command)) {

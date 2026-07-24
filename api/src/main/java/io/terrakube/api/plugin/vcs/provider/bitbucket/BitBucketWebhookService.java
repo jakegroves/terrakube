@@ -248,6 +248,24 @@ public class BitBucketWebhookService extends WebhookServiceBase {
         return null;
     }
 
+    public boolean updatePrComment(Job job, String commentId, String markdownBody) {
+        Workspace workspace = job.getWorkspace();
+        String[] ownerAndRepo = extractOwnerAndRepo(workspace.getSource());
+        String apiUrl = workspace.getVcs().getApiUrl() + "/repositories/" + String.join("/", ownerAndRepo)
+                + "/pullrequests/" + job.getPrNumber() + "/comments/" + commentId;
+
+        String escapedBody = escapeJsonString(markdownBody);
+        String body = "{\"content\":{\"raw\":\"" + escapedBody + "\"}}";
+
+        ResponseEntity<String> response = callBitBucketApi(workspace.getVcs().getAccessToken(), body, apiUrl, HttpMethod.PUT);
+        if (response != null && response.getStatusCode().is2xxSuccessful()) {
+            log.info("PR comment {} updated successfully on PR #{} in workspace {}", commentId, job.getPrNumber(), workspace.getName());
+            return true;
+        }
+        log.error("Failed to update PR comment {} on PR #{} in workspace {}", commentId, job.getPrNumber(), workspace.getName());
+        return false;
+    }
+
     private List<String> getFileChanges(String diffFile, String workspaceId) {
         List<String> fileChanges = new ArrayList<>();
 

@@ -10,6 +10,7 @@ import static org.mockito.Mockito.verify;
 
 import java.nio.charset.StandardCharsets;
 import java.util.List;
+import java.util.Optional;
 import java.util.UUID;
 
 import org.junit.jupiter.api.BeforeEach;
@@ -80,6 +81,7 @@ public class PrCommentServiceTest {
         Job job = new Job();
         job.setId(42);
         job.setPrNumber(prNumber);
+        job.setPrApplyEnabled(true);
         job.setStatus(status);
         job.setWorkspace(workspace);
         job.setOrganization(org);
@@ -518,5 +520,127 @@ public class PrCommentServiceTest {
         assertEquals(Integer.valueOf(7), jobCaptor.getValue().getPrNumber());
         assertTrue(markdownCaptor.getValue().contains("Allow Apply via PR Comment"));
         assertTrue(markdownCaptor.getValue().contains("not enabled"));
+    }
+
+    @Test
+    public void postPlanResultOmitsApplyFooterWhenApplyDisabled() {
+        Job job = createJob(VcsType.GITHUB, 5, JobStatus.completed);
+        job.setPrApplyEnabled(false);
+        stubStepOutput(job, "Plan: 1 to add, 0 to change, 0 to destroy.");
+
+        doReturn("12345").when(gitHubWebhookService).postPrComment(any(), any());
+        doReturn(job).when(jobRepository).save(any());
+
+        subject.postPlanResult(job);
+
+        ArgumentCaptor<String> markdownCaptor = ArgumentCaptor.forClass(String.class);
+        verify(gitHubWebhookService, times(1)).postPrComment(eq(job), markdownCaptor.capture());
+
+        String markdown = markdownCaptor.getValue();
+        assertFalse(markdown.contains("comment: `terrakube apply`"));
+        assertTrue(markdown.contains("Apply via PR comment is disabled"));
+        assertTrue(markdown.contains("Allow Apply via PR Comment"));
+        assertTrue(markdown.contains("terrakube plan"));
+    }
+
+    @Test
+    public void postPlanResultIncludesApplyFooterWhenApplyEnabled() {
+        Job job = createJob(VcsType.GITHUB, 5, JobStatus.completed);
+        job.setPrApplyEnabled(true);
+        stubStepOutput(job, "Plan: 1 to add, 0 to change, 0 to destroy.");
+
+        doReturn("12345").when(gitHubWebhookService).postPrComment(any(), any());
+        doReturn(job).when(jobRepository).save(any());
+
+        subject.postPlanResult(job);
+
+        ArgumentCaptor<String> markdownCaptor = ArgumentCaptor.forClass(String.class);
+        verify(gitHubWebhookService, times(1)).postPrComment(eq(job), markdownCaptor.capture());
+
+        assertTrue(markdownCaptor.getValue().contains("comment: `terrakube apply`"));
+    }
+
+    @Test
+    public void postPlanResultUpdatesExistingThreadCommentWhenPriorPlanJobExists() {
+        Job job = createJob(VcsType.GITHUB, 5, JobStatus.completed);
+        job.setId(99);
+        stubStepOutput(job, "Plan: 1 to add, 0 to change, 0 to destroy.");
+
+        Job priorJob = createJob(VcsType.GITHUB, 5, JobStatus.completed);
+        priorJob.setId(50);
+        priorJob.setPrCommentId("existing-comment-1");
+
+        doReturn(Optional.of(priorJob)).when(jobRepository)
+                .findFirstByWorkspaceAndPrNumberAndIdNotAndAutoApplyFalseAndPrCommentIdIsNotNullOrderByIdDesc(
+                        job.getWorkspace(), 5, 99);
+        doReturn(true).when(gitHubWebhookService).updatePrComment(eq(job), eq("existing-comment-1"), any());
+        doReturn(job).when(jobRepository).save(any());
+
+        subject.postPlanResult(job);
+
+        verify(gitHubWebhookService, times(1)).updatePrComment(eq(job), eq("existing-comment-1"), any());
+        verify(gitHubWebhookService, never()).postPrComment(any(), any());
+        assertEquals("existing-comment-1", job.getPrCommentId());
+    }
+
+    @Test
+    public void postPlanResultFallsBackToNewCommentWhenUpdateFails() {
+        Job job = createJob(VcsType.GITHUB, 5, JobStatus.completed);
+        job.setId(99);
+        stubStepOutput(job, "Plan: 1 to add, 0 to change, 0 to destroy.");
+
+        Job priorJob = createJob(VcsType.GITHUB, 5, JobStatus.completed);
+        priorJob.setId(50);
+        priorJob.setPrCommentId("stale-comment-1");
+
+        doReturn(Optional.of(priorJob)).when(jobRepository)
+                .findFirstByWorkspaceAndPrNumberAndIdNotAndAutoApplyFalseAndPrCommentIdIsNotNullOrderByIdDesc(
+                        job.getWorkspace(), 5, 99);
+        doReturn(false).when(gitHubWebhookService).updatePrComment(eq(job), eq("stale-comment-1"), any());
+        doReturn("new-comment-1").when(gitHubWebhookService).postPrComment(any(), any());
+        doReturn(job).when(jobRepository).save(any());
+
+        subject.postPlanResult(job);
+
+        verify(gitHubWebhookService, times(1)).updatePrComment(eq(job), eq("stale-comment-1"), any());
+        verify(gitHubWebhookService, times(1)).postPrComment(eq(job), any());
+        assertEquals("new-comment-1", job.getPrCommentId());
+    }
+
+    @Test
+    public void jobHeaderLinksToTerrakubeUiWhenUiUrlConfigured() {
+        subject.uiUrl = "https://terrakube.example.com";
+        Job job = createJob(VcsType.GITHUB, 5, JobStatus.completed);
+        job.getOrganization().setId(UUID.fromString("11111111-1111-1111-1111-111111111111"));
+        job.getWorkspace().setId(UUID.fromString("22222222-2222-2222-2222-222222222222"));
+        stubStepOutput(job, "Plan: 1 to add, 0 to change, 0 to destroy.");
+
+        doReturn("12345").when(gitHubWebhookService).postPrComment(any(), any());
+        doReturn(job).when(jobRepository).save(any());
+
+        subject.postPlanResult(job);
+
+        ArgumentCaptor<String> markdownCaptor = ArgumentCaptor.forClass(String.class);
+        verify(gitHubWebhookService, times(1)).postPrComment(eq(job), markdownCaptor.capture());
+
+        String expectedUrl = "https://terrakube.example.com/organizations/11111111-1111-1111-1111-111111111111"
+                + "/workspaces/22222222-2222-2222-2222-222222222222/runs/42";
+        assertTrue(markdownCaptor.getValue().contains("[#42](" + expectedUrl + ")"));
+    }
+
+    @Test
+    public void jobHeaderUsesPlainReferenceWhenUiUrlNotConfigured() {
+        Job job = createJob(VcsType.GITHUB, 5, JobStatus.completed);
+        stubStepOutput(job, "Plan: 1 to add, 0 to change, 0 to destroy.");
+
+        doReturn("12345").when(gitHubWebhookService).postPrComment(any(), any());
+        doReturn(job).when(jobRepository).save(any());
+
+        subject.postPlanResult(job);
+
+        ArgumentCaptor<String> markdownCaptor = ArgumentCaptor.forClass(String.class);
+        verify(gitHubWebhookService, times(1)).postPrComment(eq(job), markdownCaptor.capture());
+
+        assertTrue(markdownCaptor.getValue().contains("**Job:** #42"));
     }
 }

@@ -439,7 +439,7 @@ public class GitHubWebhookService extends WebhookServiceBase {
         return null;
     }
 
-    public void updatePrComment(Job job, String commentId, String markdownBody) {
+    public boolean updatePrComment(Job job, String commentId, String markdownBody) {
         Workspace workspace = job.getWorkspace();
         String[] ownerAndRepo = extractOwnerAndRepo(workspace.getSource());
         String apiUrl = workspace.getVcs().getApiUrl() + "/repos/" + String.join("/", ownerAndRepo)
@@ -450,10 +450,11 @@ public class GitHubWebhookService extends WebhookServiceBase {
 
         ResponseEntity<String> response = callGitHubApi(workspace.getVcs(), ownerAndRepo, body, apiUrl, HttpMethod.PATCH);
         if (response != null && response.getStatusCode().is2xxSuccessful()) {
-            log.info("PR comment updated successfully on workspace {}", workspace.getName());
-        } else {
-            log.error("Failed to update PR comment on workspace {}", workspace.getName());
+            log.info("PR comment {} updated successfully on workspace {}", commentId, workspace.getName());
+            return true;
         }
+        log.error("Failed to update PR comment {} on workspace {}", commentId, workspace.getName());
+        return false;
     }
 
     public WebhookResult parseGitHubPayload(String jsonPayload, Map<String, String> headers, Vcs vcs) {

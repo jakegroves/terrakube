@@ -144,6 +144,21 @@ public class WebhookServiceTest {
     }
 
     @Test
+    public void planCommentThreadsPrApplyEnabledOntoJob() throws Exception {
+        pullRequestEvent.setPrWorkflowEnabled(true);
+        pullRequestEvent.setPrApplyEnabled(true);
+        WebhookResult result = createCommentResult("plan", 5);
+
+        Job savedJob = new Job();
+        savedJob.setWorkspace(workspace);
+        doReturn(savedJob).when(jobRepository).save(any());
+
+        subject.handlePrCommentCommand(result, webhook, workspace);
+
+        assertTrue(savedJob.isPrApplyEnabled());
+    }
+
+    @Test
     public void applyCommentRejectedWhenPrApplyDisabled() throws Exception {
         pullRequestEvent.setPrWorkflowEnabled(true);
         pullRequestEvent.setPrApplyEnabled(false);

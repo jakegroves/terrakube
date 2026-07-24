@@ -110,4 +110,5 @@
     <include file="/db/changelog/local/changelog-2.33.0-pr-comment-error.xml"/>
     <include file="/db/changelog/local/changelog-2.33.0-pr-apply-enabled.xml"/>
     <include file="/db/changelog/local/changelog-2.33.0-pr-apply-enabled-fix.xml"/>
+    <include file="/db/changelog/local/changelog-2.33.0-job-pr-apply-enabled.xml"/>
 </databaseChangeLog>

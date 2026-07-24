@@ -12,8 +12,8 @@ import io.terrakube.api.rs.vcs.VcsType;
 import io.terrakube.api.rs.job.step.Step;
 import io.terrakube.api.rs.workspace.Workspace;
 
-import lombok.AllArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
 import java.nio.charset.StandardCharsets;
@@ -23,7 +23,6 @@ import java.util.Set;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
-@AllArgsConstructor
 @Slf4j
 @Service
 public class PrCommentService {
@@ -42,17 +41,46 @@ public class PrCommentService {
     StorageTypeService storageTypeService;
     StreamingService streamingService;
 
+    @Value("${io.terrakube.ui.url:}")
+    String uiUrl;
+
+    public PrCommentService(GitHubWebhookService gitHubWebhookService, GitLabWebhookService gitLabWebhookService,
+            BitBucketWebhookService bitBucketWebhookService, JobRepository jobRepository,
+            StorageTypeService storageTypeService, StreamingService streamingService) {
+        this.gitHubWebhookService = gitHubWebhookService;
+        this.gitLabWebhookService = gitLabWebhookService;
+        this.bitBucketWebhookService = bitBucketWebhookService;
+        this.jobRepository = jobRepository;
+        this.storageTypeService = storageTypeService;
+        this.streamingService = streamingService;
+    }
+
     public void postPlanResult(Job job) {
         if (job.getPrNumber() == null || job.getPrNumber() == 0) return;
 
         String planOutput = fetchStepOutputText(job);
         String markdownComment = formatPlanComment(job, planOutput);
 
-        String commentId = attemptPostComment(job, markdownComment);
+        String existingThreadCommentId = findReusablePlanCommentId(job);
+        String commentId = existingThreadCommentId != null
+                ? attemptUpdateComment(job, existingThreadCommentId, markdownComment)
+                : attemptPostComment(job, markdownComment);
         if (commentId != null) {
             job.setPrCommentId(commentId);
         }
         jobRepository.save(job);
+    }
+
+    /**
+     * Reuses the comment from the most recent prior plan job on this same PR (if any) so
+     * repeated replans update one running comment instead of stacking a new one per push.
+     * Apply jobs are excluded so the apply audit trail is never overwritten in place.
+     */
+    private String findReusablePlanCommentId(Job job) {
+        return jobRepository.findFirstByWorkspaceAndPrNumberAndIdNotAndAutoApplyFalseAndPrCommentIdIsNotNullOrderByIdDesc(
+                        job.getWorkspace(), job.getPrNumber(), job.getId())
+                .map(Job::getPrCommentId)
+                .orElse(null);
     }
 
     public void postApplyResult(Job job) {
@@ -86,6 +114,36 @@ public class PrCommentService {
     private String buildFailureMessage(Job job) {
         return "Failed to post comment on pull request #" + job.getPrNumber()
                 + ". Verify the VCS connection has write access to pull requests.";
+    }
+
+    /**
+     * Tries to edit the existing thread comment in place; falls back to posting a new comment
+     * if the update fails (e.g. the original comment was deleted), so the plan result is never
+     * silently dropped.
+     */
+    private String attemptUpdateComment(Job job, String commentId, String markdownComment) {
+        try {
+            if (updateComment(job, commentId, markdownComment)) {
+                job.setPrCommentError(null);
+                return commentId;
+            }
+        } catch (Exception e) {
+            log.error("Error updating PR comment {} for job {}: {}", commentId, job.getId(), e.getMessage());
+        }
+        return attemptPostComment(job, markdownComment);
+    }
+
+    private boolean updateComment(Job job, String commentId, String markdownComment) {
+        switch (job.getWorkspace().getVcs().getVcsType()) {
+            case GITHUB:
+                return gitHubWebhookService.updatePrComment(job, commentId, markdownComment);
+            case GITLAB:
+                return gitLabWebhookService.updateMergeRequestNote(job, commentId, markdownComment);
+            case BITBUCKET:
+                return bitBucketWebhookService.updatePrComment(job, commentId, markdownComment);
+            default:
+                return false;
+        }
     }
 
     /**
@@ -158,6 +216,16 @@ public class PrCommentService {
         return commentId;
     }
 
+    private String jobReference(Job job) {
+        if (uiUrl == null || uiUrl.isEmpty()) {
+            return "#" + job.getId();
+        }
+        Workspace workspace = job.getWorkspace();
+        String jobUrl = String.format("%s/organizations/%s/workspaces/%s/runs/%s", uiUrl,
+                workspace.getOrganization().getId(), workspace.getId(), job.getId());
+        return "[#" + job.getId() + "](" + jobUrl + ")";
+    }
+
     private String statusIcon(JobStatus status) {
         switch (status) {
             case completed:
@@ -174,7 +242,7 @@ public class PrCommentService {
         sb.append("## Terrakube Plan Output\n\n");
         sb.append("**Workspace:** ").append(job.getWorkspace().getName()).append("\n");
         sb.append("**Status:** ").append(job.getStatus()).append("\n");
-        sb.append("**Job:** #").append(job.getId()).append("\n\n");
+        sb.append("**Job:** ").append(jobReference(job)).append("\n\n");
 
         String icon = statusIcon(job.getStatus());
 
@@ -200,7 +268,12 @@ public class PrCommentService {
         }
 
         sb.append("---\n");
-        sb.append("To apply this plan, comment: `terrakube apply`\n");
+        if (job.isPrApplyEnabled()) {
+            sb.append("To apply this plan, comment: `terrakube apply`\n");
+        } else {
+            sb.append("Apply via PR comment is disabled for this workspace. Apply this plan from the Terrakube UI, ")
+              .append("or ask a workspace admin to enable **Allow Apply via PR Comment**.\n");
+        }
         sb.append("To re-plan, comment: `terrakube plan`\n");
 
         return sb.toString();
@@ -211,7 +284,7 @@ public class PrCommentService {
         sb.append("## Terrakube Apply Output\n\n");
         sb.append("**Workspace:** ").append(job.getWorkspace().getName()).append("\n");
         sb.append("**Status:** ").append(job.getStatus()).append("\n");
-        sb.append("**Job:** #").append(job.getId()).append("\n\n");
+        sb.append("**Job:** ").append(jobReference(job)).append("\n\n");
 
         String icon = statusIcon(job.getStatus());
         String summary = job.getStatus() == JobStatus.completed ? "Apply complete" : "Apply failed";
