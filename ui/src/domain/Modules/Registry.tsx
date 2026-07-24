@@ -6,8 +6,9 @@ import {
   AppstoreOutlined,
   CloudServerOutlined,
 } from "@ant-design/icons";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import { useNavigate, useParams, useSearchParams } from "react-router-dom";
+import { queryOptions, useQuery } from "@tanstack/react-query";
 import PageWrapper from "@/modules/layout/PageWrapper/PageWrapper";
 import { ModuleList } from "./ModuleList";
 import { ProviderList } from "../Providers/ProviderList";
@@ -80,98 +81,56 @@ async function fetchOrgName(orgId: string): Promise<string> {
   return response.data.data.attributes.name;
 }
 
+// Shared between the route loader (which primes the cache before navigation
+// commits) and this component's own useQuery, so the two never fetch twice.
+export const registryOrgNameQuery = (orgId: string) =>
+  queryOptions({ queryKey: ["orgName", orgId], queryFn: () => fetchOrgName(orgId) });
+export const registryModulesQuery = (orgId: string) =>
+  queryOptions({ queryKey: ["registryModules", orgId], queryFn: () => fetchModules(orgId) });
+export const registryProvidersQuery = (orgId: string) =>
+  queryOptions({ queryKey: ["registryProviders", orgId], queryFn: () => fetchProviders(orgId) });
+
 export const Registry = ({ setOrganizationName, organizationName }: Props) => {
   const { orgid } = useParams<Params>();
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
   const [searchFilter, setSearchFilter] = useState("");
-  const [modules, setModules] = useState<FlatModule[]>([]);
-  const [providers, setProviders] = useState<FlatProvider[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<ErrorInformation | undefined>(undefined);
-
-  // Track which data has been loaded to avoid re-fetching
-  const modulesLoaded = useRef(false);
-  const providersLoaded = useRef(false);
 
   const activeTab = searchParams.get("tab") || "modules";
 
-  const loadModules = useCallback(async () => {
-    if (!orgid || modulesLoaded.current) return;
-    try {
-      const data = await fetchModules(orgid);
-      setModules(data);
-      modulesLoaded.current = true;
-    } catch (err) {
-      console.error("Failed to load modules:", err);
-      setError({ title: "Failed to load modules" });
-    }
-  }, [orgid]);
+  const orgNameQueryResult = useQuery(registryOrgNameQuery(orgid!));
+  // Each tab's data is only fetched once it's the active tab (matching the
+  // previous "lazy load on first switch" behavior); react-query then caches
+  // it, so switching back and forth doesn't refetch.
+  const modulesQuery = useQuery({
+    ...registryModulesQuery(orgid!),
+    enabled: Boolean(orgid) && activeTab === "modules",
+  });
+  const providersQuery = useQuery({
+    ...registryProvidersQuery(orgid!),
+    enabled: Boolean(orgid) && activeTab === "providers",
+  });
+  const modules = modulesQuery.data ?? [];
+  const providers = providersQuery.data ?? [];
 
-  const loadProviders = useCallback(async () => {
-    if (!orgid || providersLoaded.current) return;
-    try {
-      const data = await fetchProviders(orgid);
-      setProviders(data);
-      providersLoaded.current = true;
-    } catch (err) {
-      console.error("Failed to load providers:", err);
-      setError({ title: "Failed to load providers" });
-    }
-  }, [orgid]);
+  const loading =
+    orgNameQueryResult.isLoading || (activeTab === "providers" ? providersQuery.isLoading : modulesQuery.isLoading);
+  const queryError = orgNameQueryResult.error || modulesQuery.error || providersQuery.error;
+  const error: ErrorInformation | undefined = queryError ? { title: "Failed to load registry data" } : undefined;
 
-  // On mount: fetch org name + data for the active tab in parallel
   useEffect(() => {
-    if (!orgid) return;
-    sessionStorage.setItem(ORGANIZATION_ARCHIVE, orgid);
+    if (orgid) sessionStorage.setItem(ORGANIZATION_ARCHIVE, orgid);
+  }, [orgid]);
 
-    const init = async () => {
-      setLoading(true);
-      setError(undefined);
-      try {
-        // Fetch org name in parallel with the active tab's data
-        const promises: Promise<any>[] = [
-          fetchOrgName(orgid).then((name) => {
-            sessionStorage.setItem(ORGANIZATION_NAME, name);
-            setOrganizationName(name);
-          }),
-        ];
-
-        if (activeTab === "providers") {
-          promises.push(
-            fetchProviders(orgid).then((data) => {
-              setProviders(data);
-              providersLoaded.current = true;
-            })
-          );
-        } else {
-          promises.push(
-            fetchModules(orgid).then((data) => {
-              setModules(data);
-              modulesLoaded.current = true;
-            })
-          );
-        }
-
-        await Promise.all(promises);
-      } catch (err) {
-        setError({ title: "Failed to load registry data" });
-      } finally {
-        setLoading(false);
-      }
-    };
-
-    init();
-  }, [orgid]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => {
+    if (orgNameQueryResult.data) {
+      sessionStorage.setItem(ORGANIZATION_NAME, orgNameQueryResult.data);
+      setOrganizationName(orgNameQueryResult.data);
+    }
+  }, [orgNameQueryResult.data, setOrganizationName]);
 
   const handleTabChange = (key: string) => {
     setSearchParams({ tab: key });
-    // Lazy load the other tab's data on first switch
-    if (key === "providers") {
-      loadProviders();
-    } else {
-      loadModules();
-    }
   };
 
   const handleSearchPublicRegistry = () => {

@@ -1,5 +1,5 @@
 import { Layout, ConfigProvider, theme } from "antd";
-import { lazy, Suspense, useState, useEffect, type Dispatch, type SetStateAction } from "react";
+import { Suspense, useState, useEffect, type ComponentType, type Dispatch, type SetStateAction } from "react";
 import {
   RouterProvider,
   createBrowserRouter,
@@ -9,9 +9,12 @@ import {
   useOutletContext,
   useLocation,
   useNavigation,
+  type RouteObject,
+  type LoaderFunctionArgs,
 } from "react-router-dom";
 import { useAuth } from "../../config/authConfig";
 import { getBasePath } from "../../config/basePath";
+import { queryClient } from "../../config/queryClient";
 import { getThemeConfig } from "../../config/themeConfig";
 import { ThemeProvider, useTheme } from "../../context/ThemeContext";
 import Login from "../Login/Login";
@@ -32,97 +35,185 @@ type AppRouteContext = {
   setOrganizationName: Dispatch<SetStateAction<string>>;
 };
 
+// Each loader below is a plain dynamic import (no React.lazy/Suspense): when used via a
+// route's `lazy` property, React Router awaits it as part of navigation itself, so
+// useNavigation() reflects the chunk download and the router holds the previous page
+// (progress bar visible) instead of unmounting to a blank Suspense fallback.
+
 // Organizations
-const CreateOrganization = lazy(() =>
-  import("../Organizations/Create").then((module) => ({ default: module.CreateOrganization }))
-);
-const OrganizationsPickerPage = lazy(() => import("@/modules/organizations/OrganizationsPickerPage"));
-const OrganizationsDetailPage = lazy(() => import("@/modules/organizations/OrganizationDetailsPage"));
-const ProjectsPage = lazy(() => import("@/modules/projects/ProjectsPage"));
-const ProjectDetailPage = lazy(() => import("@/modules/projects/ProjectDetailPage"));
+const loadCreateOrganization = () => import("../Organizations/Create").then((m) => m.CreateOrganization);
+const loadOrganizationsPickerPage = () =>
+  import("@/modules/organizations/OrganizationsPickerPage").then((m) => m.default);
+const loadProjectDetailPage = () => import("@/modules/projects/ProjectDetailPage").then((m) => m.default);
 
 // Workspaces
-const CreateWorkspace = lazy(() =>
-  import("../Workspaces/Create").then((module) => ({ default: module.CreateWorkspace }))
-);
-const ImportWorkspace = lazy(() =>
-  import("../Workspaces/Import").then((module) => ({ default: module.ImportWorkspace }))
-);
-const WorkspaceDetails = lazy(() =>
-  import("../Workspaces/Details").then((module) => ({ default: module.WorkspaceDetails }))
-);
+const loadCreateWorkspace = () => import("../Workspaces/Create").then((m) => m.CreateWorkspace);
+const loadImportWorkspace = () => import("../Workspaces/Import").then((m) => m.ImportWorkspace);
+const loadWorkspaceDetails = () => import("../Workspaces/Details").then((m) => m.WorkspaceDetails);
 
 // Modules and registry
-const CreateModule = lazy(() => import("../Modules/Create").then((module) => ({ default: module.CreateModule })));
-const Registry = lazy(() => import("../Modules/Registry").then((module) => ({ default: module.Registry })));
-const PublicRegistrySearch = lazy(() =>
-  import("../Modules/PublicRegistrySearch").then((module) => ({ default: module.PublicRegistrySearch }))
-);
-const ProviderDetails = lazy(() =>
-  import("../Providers/ProviderDetails").then((module) => ({ default: module.ProviderDetails }))
-);
-const ModuleDetails = lazy(() => import("../Modules/Details").then((module) => ({ default: module.ModuleDetails })));
+const loadCreateModule = () => import("../Modules/Create").then((m) => m.CreateModule);
+const loadModuleDetails = () => import("../Modules/Details").then((m) => m.ModuleDetails);
 
 // Settings
-const OrganizationSettings = lazy(() =>
-  import("../Settings/Settings").then((module) => ({ default: module.OrganizationSettings }))
-);
-const UserSettingsPage = lazy(() =>
-  import("@/modules/user/UserSettingsPage").then((module) => ({ default: module.UserSettingsPage }))
-);
-
-// Helper component to extract URL parameters for collection routes
-const CollectionSettingsWrapper = ({ mode }: { mode: "edit" | "detail" }) => {
-  const { collectionid } = useParams();
-  return <OrganizationSettings selectedTab="9" collectionMode={mode} collectionId={collectionid} />;
-};
+const loadOrganizationSettings = () => import("../Settings/Settings").then((m) => m.OrganizationSettings);
+const loadUserSettingsPage = () => import("@/modules/user/UserSettingsPage").then((m) => m.UserSettingsPage);
 
 const useAppRouteContext = () => useOutletContext<AppRouteContext>();
 
-const CreateOrganizationRoute = () => {
-  const { setOrganizationName } = useAppRouteContext();
-  return <CreateOrganization setOrganizationName={setOrganizationName} />;
-};
+// Builds a route's `lazy` property: awaits the dynamic import, then renders the
+// resolved component with whatever props `useProps` computes (typically read from
+// useAppRouteContext()/useParams(), mirroring what the old *Route wrapper components did).
+const makeLazyRoute = (
+  load: () => Promise<ComponentType<any>>,
+  useProps?: () => Record<string, unknown>
+): Pick<RouteObject, "lazy"> => ({
+  lazy: async () => {
+    const Component = await load();
+    return {
+      Component: () => {
+        const props = useProps ? useProps() : {};
+        return <Component {...props} />;
+      },
+    };
+  },
+});
 
-const OrganizationsDetailRoute = () => {
-  const { organizationName, setOrganizationName } = useAppRouteContext();
-  return <OrganizationsDetailPage setOrganizationName={setOrganizationName} organizationName={organizationName} />;
-};
+// Same as makeLazyRoute, but also adds a `loader` that primes the react-query cache
+// (via queryClient.ensureQueryData) before the router commits the navigation, so the
+// component's own useQuery for the same query resolves instantly with no extra fetch.
+const makeLazyRouteWithLoader = (
+  load: () => Promise<{ Component: ComponentType<any>; query: (...args: any[]) => any }>,
+  getQueryArgs: (params: LoaderFunctionArgs["params"]) => any[],
+  useProps?: () => Record<string, unknown>
+): Pick<RouteObject, "lazy"> => ({
+  lazy: async () => {
+    const { Component, query } = await load();
+    return {
+      loader: async ({ params }: LoaderFunctionArgs) => {
+        await queryClient.ensureQueryData(query(...getQueryArgs(params)));
+        return null;
+      },
+      Component: () => {
+        const props = useProps ? useProps() : {};
+        return <Component {...props} />;
+      },
+    };
+  },
+});
 
-const OrganizationsProjectsRoute = () => {
-  const { organizationName, setOrganizationName } = useAppRouteContext();
-  return <ProjectsPage setOrganizationName={setOrganizationName} organizationName={organizationName} />;
-};
+const createOrganizationRoute = () =>
+  makeLazyRoute(loadCreateOrganization, () => {
+    const { setOrganizationName } = useAppRouteContext();
+    return { setOrganizationName };
+  });
 
-const OrganizationsProjectDetailRoute = () => {
-  const { organizationName, setOrganizationName } = useAppRouteContext();
-  return <ProjectDetailPage setOrganizationName={setOrganizationName} organizationName={organizationName} />;
-};
+const organizationsDetailRoute = () =>
+  makeLazyRouteWithLoader(
+    () =>
+      import("@/modules/organizations/OrganizationDetailsPage").then((m) => ({
+        Component: m.default,
+        query: m.organizationWorkspacesQuery,
+      })),
+    (params) => [params.id!],
+    () => {
+      const { organizationName, setOrganizationName } = useAppRouteContext();
+      return { organizationName, setOrganizationName };
+    }
+  );
 
-const WorkspaceDetailsRoute = ({ selectedTab }: { selectedTab?: string }) => {
-  const { setOrganizationName } = useAppRouteContext();
-  return <WorkspaceDetails setOrganizationName={setOrganizationName} selectedTab={selectedTab} />;
-};
+const organizationsProjectsRoute = () =>
+  makeLazyRouteWithLoader(
+    () =>
+      import("@/modules/projects/ProjectsPage").then((m) => ({
+        Component: m.default,
+        query: m.organizationProjectsQuery,
+      })),
+    (params) => [params.id!],
+    () => {
+      const { organizationName, setOrganizationName } = useAppRouteContext();
+      return { organizationName, setOrganizationName };
+    }
+  );
 
-const RegistryRoute = () => {
-  const { organizationName, setOrganizationName } = useAppRouteContext();
-  return <Registry setOrganizationName={setOrganizationName} organizationName={organizationName} />;
-};
+const organizationsProjectDetailRoute = () =>
+  makeLazyRoute(loadProjectDetailPage, () => {
+    const { organizationName, setOrganizationName } = useAppRouteContext();
+    return { organizationName, setOrganizationName };
+  });
 
-const PublicRegistrySearchRoute = () => {
-  const { organizationName } = useAppRouteContext();
-  return <PublicRegistrySearch organizationName={organizationName} />;
-};
+const workspaceDetailsRoute = (selectedTab?: string) =>
+  makeLazyRoute(loadWorkspaceDetails, () => {
+    const { setOrganizationName } = useAppRouteContext();
+    return { setOrganizationName, selectedTab };
+  });
 
-const ProviderDetailsRoute = () => {
-  const { organizationName } = useAppRouteContext();
-  return <ProviderDetails organizationName={organizationName} />;
-};
+const registryRoute = (): Pick<RouteObject, "lazy"> => ({
+  lazy: async () => {
+    const { Registry, registryOrgNameQuery, registryModulesQuery, registryProvidersQuery } =
+      await import("../Modules/Registry");
+    return {
+      loader: async ({ params, request }: LoaderFunctionArgs) => {
+        const orgid = params.orgid!;
+        const tab = new URL(request.url).searchParams.get("tab") || "modules";
+        await Promise.all([
+          queryClient.ensureQueryData(registryOrgNameQuery(orgid)),
+          queryClient.ensureQueryData(
+            tab === "providers" ? registryProvidersQuery(orgid) : registryModulesQuery(orgid)
+          ),
+        ]);
+        return null;
+      },
+      Component: () => {
+        const { organizationName, setOrganizationName } = useAppRouteContext();
+        return <Registry organizationName={organizationName} setOrganizationName={setOrganizationName} />;
+      },
+    };
+  },
+});
 
-const ModuleDetailsRoute = () => {
-  const { organizationName } = useAppRouteContext();
-  return <ModuleDetails organizationName={organizationName} />;
-};
+const publicRegistrySearchRoute = () =>
+  makeLazyRouteWithLoader(
+    () =>
+      import("../Modules/PublicRegistrySearch").then((m) => ({
+        Component: m.PublicRegistrySearch,
+        query: m.existingRegistryItemsQuery,
+      })),
+    (params) => [params.orgid!],
+    () => {
+      const { organizationName } = useAppRouteContext();
+      return { organizationName };
+    }
+  );
+
+const providerDetailsRoute = () =>
+  makeLazyRouteWithLoader(
+    () =>
+      import("../Providers/ProviderDetails").then((m) => ({
+        Component: m.ProviderDetails,
+        query: m.providerDetailsQuery,
+      })),
+    (params) => [params.orgid!, params.providerid!],
+    () => {
+      const { organizationName } = useAppRouteContext();
+      return { organizationName };
+    }
+  );
+
+const moduleDetailsRoute = () =>
+  makeLazyRoute(loadModuleDetails, () => {
+    const { organizationName } = useAppRouteContext();
+    return { organizationName };
+  });
+
+const organizationSettingsRoute = (selectedTab?: string, vcsMode?: string, collectionMode?: string) =>
+  makeLazyRoute(loadOrganizationSettings, () => ({ selectedTab, vcsMode, collectionMode }));
+
+const collectionSettingsRoute = (mode: "edit" | "detail") =>
+  makeLazyRoute(loadOrganizationSettings, () => {
+    const { collectionid } = useParams();
+    return { selectedTab: "9", collectionMode: mode, collectionId: collectionid };
+  });
 
 const NavigationProgressBar = () => {
   const navigation = useNavigation();
@@ -264,170 +355,170 @@ const App = () => {
         path: "/",
         element: <AppLayout />,
         children: [
-        {
-          path: "/",
-          element: <OrganizationsPickerPage />,
-        },
-        {
-          path: "/organizations",
-          element: <OrganizationsPickerPage />,
-        },
-        {
-          path: "/organizations/create",
-          element: <CreateOrganizationRoute />,
-        },
-        {
-          path: "/organizations/:id/workspaces",
-          element: <OrganizationsDetailRoute />,
-        },
-        {
-          path: "/organizations/:id/projects",
-          element: <OrganizationsProjectsRoute />,
-        },
-        {
-          path: "/organizations/:orgid/projects/:id",
-          element: <OrganizationsProjectDetailRoute />,
-        },
-        {
-          path: "/workspaces/create",
-          element: <CreateWorkspace />,
-        },
-        {
-          path: "/workspaces/import",
-          element: <ImportWorkspace />,
-        },
-        {
-          path: "/workspaces/:id",
-          element: <WorkspaceDetailsRoute />,
-        },
-        {
-          path: "/organizations/:orgid/workspaces/:id",
-          element: <WorkspaceDetailsRoute />,
-        },
-        {
-          path: "/workspaces/:id/runs",
-          element: <WorkspaceDetailsRoute selectedTab="2" />,
-        },
-        {
-          path: "/organizations/:orgid/workspaces/:id/runs",
-          element: <WorkspaceDetailsRoute selectedTab="2" />,
-        },
-        {
-          path: "/workspaces/:id/runs/:runid",
-          element: <WorkspaceDetailsRoute selectedTab="2" />,
-        },
-        {
-          path: "/organizations/:orgid/workspaces/:id/runs/:runid",
-          element: <WorkspaceDetailsRoute selectedTab="2" />,
-        },
-        {
-          path: "/workspaces/:id/states",
-          element: <WorkspaceDetailsRoute selectedTab="3" />,
-        },
-        {
-          path: "/organizations/:orgid/workspaces/:id/states",
-          element: <WorkspaceDetailsRoute selectedTab="3" />,
-        },
-        {
-          path: "/workspaces/:id/variables",
-          element: <WorkspaceDetailsRoute selectedTab="4" />,
-        },
-        {
-          path: "/organizations/:orgid/workspaces/:id/variables",
-          element: <WorkspaceDetailsRoute selectedTab="4" />,
-        },
-        {
-          path: "/workspaces/:id/schedules",
-          element: <WorkspaceDetailsRoute selectedTab="5" />,
-        },
-        {
-          path: "/organizations/:orgid/workspaces/:id/schedules",
-          element: <WorkspaceDetailsRoute selectedTab="5" />,
-        },
-        {
-          path: "/workspaces/:id/settings",
-          element: <WorkspaceDetailsRoute selectedTab="6" />,
-        },
-        {
-          path: "/organizations/:orgid/workspaces/:id/settings",
-          element: <WorkspaceDetailsRoute selectedTab="6" />,
-        },
-        {
-          path: "/organizations/:orgid/registry",
-          element: <RegistryRoute />,
-        },
-        {
-          path: "/organizations/:orgid/registry/search",
-          element: <PublicRegistrySearchRoute />,
-        },
-        {
-          path: "/organizations/:orgid/registry/create",
-          element: <CreateModule />,
-        },
-        {
-          path: "/organizations/:orgid/registry/providers/:providerid",
-          element: <ProviderDetailsRoute />,
-        },
-        {
-          path: "/organizations/:orgid/registry/:id",
-          element: <ModuleDetailsRoute />,
-        },
-        {
-          path: "/organizations/:orgid/settings",
-          element: <OrganizationSettings />,
-        },
-        {
-          path: "/organizations/:orgid/settings/general",
-          element: <OrganizationSettings selectedTab="1" />,
-        },
-        {
-          path: "/organizations/:orgid/settings/teams",
-          element: <OrganizationSettings selectedTab="2" />,
-        },
-        {
-          path: "/organizations/:orgid/settings/vcs",
-          element: <OrganizationSettings selectedTab="4" />,
-        },
-        {
-          path: "/organizations/:orgid/settings/vcs/new/:vcsName",
-          element: <OrganizationSettings selectedTab="4" vcsMode="new" />,
-        },
-        {
-          path: "/settings/tokens",
-          element: <UserSettingsPage />,
-        },
-        {
-          path: "/settings/theme",
-          element: <UserSettingsPage />,
-        },
-        {
-          path: "/organizations/:orgid/settings/ssh",
-          element: <OrganizationSettings selectedTab="6" />,
-        },
-        {
-          path: "/organizations/:orgid/settings/tags",
-          element: <OrganizationSettings selectedTab="7" />,
-        },
-        {
-          path: "/organizations/:orgid/settings/actions",
-          element: <OrganizationSettings selectedTab="10" />,
-        },
-        {
-          path: "/organizations/:orgid/settings/collection",
-          element: <OrganizationSettings selectedTab="9" />,
-        },
-        {
-          path: "/organizations/:orgid/settings/collection/new",
-          element: <OrganizationSettings selectedTab="9" collectionMode="new" />,
-        },
-        {
-          path: "/organizations/:orgid/settings/collection/edit/:collectionid",
-          element: <CollectionSettingsWrapper mode="edit" />,
-        },
-        {
-          path: "/organizations/:orgid/settings/collection/:collectionid",
-          element: <CollectionSettingsWrapper mode="detail" />,
-        },
+          {
+            path: "/",
+            ...makeLazyRoute(loadOrganizationsPickerPage),
+          },
+          {
+            path: "/organizations",
+            ...makeLazyRoute(loadOrganizationsPickerPage),
+          },
+          {
+            path: "/organizations/create",
+            ...createOrganizationRoute(),
+          },
+          {
+            path: "/organizations/:id/workspaces",
+            ...organizationsDetailRoute(),
+          },
+          {
+            path: "/organizations/:id/projects",
+            ...organizationsProjectsRoute(),
+          },
+          {
+            path: "/organizations/:orgid/projects/:id",
+            ...organizationsProjectDetailRoute(),
+          },
+          {
+            path: "/workspaces/create",
+            ...makeLazyRoute(loadCreateWorkspace),
+          },
+          {
+            path: "/workspaces/import",
+            ...makeLazyRoute(loadImportWorkspace),
+          },
+          {
+            path: "/workspaces/:id",
+            ...workspaceDetailsRoute(),
+          },
+          {
+            path: "/organizations/:orgid/workspaces/:id",
+            ...workspaceDetailsRoute(),
+          },
+          {
+            path: "/workspaces/:id/runs",
+            ...workspaceDetailsRoute("2"),
+          },
+          {
+            path: "/organizations/:orgid/workspaces/:id/runs",
+            ...workspaceDetailsRoute("2"),
+          },
+          {
+            path: "/workspaces/:id/runs/:runid",
+            ...workspaceDetailsRoute("2"),
+          },
+          {
+            path: "/organizations/:orgid/workspaces/:id/runs/:runid",
+            ...workspaceDetailsRoute("2"),
+          },
+          {
+            path: "/workspaces/:id/states",
+            ...workspaceDetailsRoute("3"),
+          },
+          {
+            path: "/organizations/:orgid/workspaces/:id/states",
+            ...workspaceDetailsRoute("3"),
+          },
+          {
+            path: "/workspaces/:id/variables",
+            ...workspaceDetailsRoute("4"),
+          },
+          {
+            path: "/organizations/:orgid/workspaces/:id/variables",
+            ...workspaceDetailsRoute("4"),
+          },
+          {
+            path: "/workspaces/:id/schedules",
+            ...workspaceDetailsRoute("5"),
+          },
+          {
+            path: "/organizations/:orgid/workspaces/:id/schedules",
+            ...workspaceDetailsRoute("5"),
+          },
+          {
+            path: "/workspaces/:id/settings",
+            ...workspaceDetailsRoute("6"),
+          },
+          {
+            path: "/organizations/:orgid/workspaces/:id/settings",
+            ...workspaceDetailsRoute("6"),
+          },
+          {
+            path: "/organizations/:orgid/registry",
+            ...registryRoute(),
+          },
+          {
+            path: "/organizations/:orgid/registry/search",
+            ...publicRegistrySearchRoute(),
+          },
+          {
+            path: "/organizations/:orgid/registry/create",
+            ...makeLazyRoute(loadCreateModule),
+          },
+          {
+            path: "/organizations/:orgid/registry/providers/:providerid",
+            ...providerDetailsRoute(),
+          },
+          {
+            path: "/organizations/:orgid/registry/:id",
+            ...moduleDetailsRoute(),
+          },
+          {
+            path: "/organizations/:orgid/settings",
+            ...organizationSettingsRoute(),
+          },
+          {
+            path: "/organizations/:orgid/settings/general",
+            ...organizationSettingsRoute("1"),
+          },
+          {
+            path: "/organizations/:orgid/settings/teams",
+            ...organizationSettingsRoute("2"),
+          },
+          {
+            path: "/organizations/:orgid/settings/vcs",
+            ...organizationSettingsRoute("4"),
+          },
+          {
+            path: "/organizations/:orgid/settings/vcs/new/:vcsName",
+            ...organizationSettingsRoute("4", "new"),
+          },
+          {
+            path: "/settings/tokens",
+            ...makeLazyRoute(loadUserSettingsPage),
+          },
+          {
+            path: "/settings/theme",
+            ...makeLazyRoute(loadUserSettingsPage),
+          },
+          {
+            path: "/organizations/:orgid/settings/ssh",
+            ...organizationSettingsRoute("6"),
+          },
+          {
+            path: "/organizations/:orgid/settings/tags",
+            ...organizationSettingsRoute("7"),
+          },
+          {
+            path: "/organizations/:orgid/settings/actions",
+            ...organizationSettingsRoute("10"),
+          },
+          {
+            path: "/organizations/:orgid/settings/collection",
+            ...organizationSettingsRoute("9"),
+          },
+          {
+            path: "/organizations/:orgid/settings/collection/new",
+            ...organizationSettingsRoute("9", undefined, "new"),
+          },
+          {
+            path: "/organizations/:orgid/settings/collection/edit/:collectionid",
+            ...collectionSettingsRoute("edit"),
+          },
+          {
+            path: "/organizations/:orgid/settings/collection/:collectionid",
+            ...collectionSettingsRoute("detail"),
+          },
         ],
       },
     ],

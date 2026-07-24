@@ -8,7 +8,8 @@ import {
   SearchOutlined,
 } from "@ant-design/icons";
 import { Button, Card, Input, List, Modal, Select, Space, Spin, Steps, Tabs, Typography, message } from "antd";
-import { useEffect, useState } from "react";
+import { useState } from "react";
+import { queryOptions, useQuery, useQueryClient } from "@tanstack/react-query";
 import { IconContext } from "react-icons";
 import { FaAws, FaGoogle } from "@/config/iconList";
 import { VscAzure } from "react-icons/vsc";
@@ -110,9 +111,36 @@ type VersionInfo = {
   platforms: { os: string; arch: string }[];
 };
 
+// Shared between the route loader (which primes the cache before navigation
+// commits) and this component's own useQuery, so the two never fetch twice.
+export const existingRegistryItemsQuery = (orgId: string) =>
+  queryOptions({
+    queryKey: ["existingRegistryItems", orgId],
+    queryFn: async () => {
+      const providersResponse = await listProviders(orgId);
+      const existingProviders = new Set(
+        providersResponse.data.map((p: ProviderModel) => p.attributes.name.toLowerCase())
+      );
+
+      const modulesResponse = await axiosInstance.get(`organization/${orgId}?include=module`);
+      const existingModules = new Set<string>();
+      if (modulesResponse.data.included) {
+        modulesResponse.data.included
+          .filter((item: any) => item.type === "module")
+          .forEach((m: ModuleModel) => {
+            // Create a key from name and provider
+            const key = `${m.attributes.name}/${m.attributes.provider}`.toLowerCase();
+            existingModules.add(key);
+          });
+      }
+      return { existingProviders, existingModules };
+    },
+  });
+
 export const PublicRegistrySearch = ({ organizationName }: Props) => {
   const { orgid } = useParams<Params>();
   const navigate = useNavigate();
+  const queryClient = useQueryClient();
 
   const [activeTab, setActiveTab] = useState<"modules" | "providers">("modules");
   const [searchQuery, setSearchQuery] = useState("");
@@ -135,46 +163,10 @@ export const PublicRegistrySearch = ({ organizationName }: Props) => {
   ]);
 
   // Existing items in the organization's registry
-  const [existingProviders, setExistingProviders] = useState<Set<string>>(new Set());
-  const [existingModules, setExistingModules] = useState<Set<string>>(new Set());
-  const [loadingExisting, setLoadingExisting] = useState(true);
-
-  // Fetch existing providers and modules on mount
-  useEffect(() => {
-    const fetchExistingItems = async () => {
-      if (!orgid) return;
-
-      setLoadingExisting(true);
-      try {
-        // Fetch existing providers
-        const providersResponse = await listProviders(orgid);
-        const providerNames = new Set(
-          providersResponse.data.map((p: ProviderModel) => p.attributes.name.toLowerCase())
-        );
-        setExistingProviders(providerNames);
-
-        // Fetch existing modules
-        const modulesResponse = await axiosInstance.get(`organization/${orgid}?include=module`);
-        const moduleNames = new Set<string>();
-        if (modulesResponse.data.included) {
-          modulesResponse.data.included
-            .filter((item: any) => item.type === "module")
-            .forEach((m: ModuleModel) => {
-              // Create a key from name and provider
-              const key = `${m.attributes.name}/${m.attributes.provider}`.toLowerCase();
-              moduleNames.add(key);
-            });
-        }
-        setExistingModules(moduleNames);
-      } catch (error) {
-        console.error("Error fetching existing items:", error);
-      } finally {
-        setLoadingExisting(false);
-      }
-    };
-
-    fetchExistingItems();
-  }, [orgid]);
+  const existingItemsQuery = useQuery(existingRegistryItemsQuery(orgid!));
+  const existingProviders = existingItemsQuery.data?.existingProviders ?? new Set<string>();
+  const existingModules = existingItemsQuery.data?.existingModules ?? new Set<string>();
+  const loadingExisting = existingItemsQuery.isLoading;
 
   // Check if a provider already exists (name is now stored as just the short name)
   const isProviderImported = (provider: TerraformRegistryProvider): boolean => {
@@ -368,7 +360,9 @@ export const PublicRegistrySearch = ({ organizationName }: Props) => {
       message.success(`Provider ${provider.namespace}/${provider.name} v${selectedVersion} added successfully`);
 
       // Update existing providers set (name is now stored as just the short name)
-      setExistingProviders((prev) => new Set([...prev, provider.name.toLowerCase()]));
+      queryClient.setQueryData(existingRegistryItemsQuery(orgid!).queryKey, (prev: typeof existingItemsQuery.data) =>
+        prev ? { ...prev, existingProviders: new Set([...prev.existingProviders, provider.name.toLowerCase()]) } : prev
+      );
 
       // Small delay to show completion
       setTimeout(() => {

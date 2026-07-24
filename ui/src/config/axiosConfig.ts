@@ -40,6 +40,7 @@ function rejectError(error: any) {
 }
 
 axiosInstance.interceptors.request.use(attachAuthToken, rejectError);
+axiosClient.interceptors.request.use(attachAuthToken, rejectError);
 axiosGraphQL.interceptors.request.use(attachAuthToken, rejectError);
 axiosRegistry.interceptors.request.use(attachAuthToken, rejectError);
 
@@ -60,6 +61,7 @@ function handleResponseError(error: AxiosError) {
 }
 
 axiosInstance.interceptors.response.use(handleResponseSuccess, handleResponseError);
+axiosClient.interceptors.response.use(handleResponseSuccess, handleResponseError);
 axiosGraphQL.interceptors.response.use(handleResponseSuccess, handleResponseError);
 axiosRegistry.interceptors.response.use(handleResponseSuccess, handleResponseError);
 

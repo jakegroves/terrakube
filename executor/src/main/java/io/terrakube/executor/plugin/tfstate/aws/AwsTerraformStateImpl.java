@@ -278,8 +278,12 @@ public class AwsTerraformStateImpl implements TerraformState {
                 .key(blobKey)
                 .build();
 
-        s3client.putObject(putObjectRequest, RequestBody.fromString(utf8EncodedString));
-        log.info("Upload Object {} completed", blobKey);
+        try {
+            s3client.putObject(putObjectRequest, RequestBody.fromString(utf8EncodedString));
+            log.info("Upload Object {} completed", blobKey);
+        } catch (Exception e) {
+            log.error("Failed to upload output to bucket {} key {}: {}", bucketName, blobKey, e.getMessage(), e);
+        }
 
         return terraformOutputPathService.getOutputPath(organizationId, jobId, stepId);
     }

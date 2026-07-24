@@ -2,9 +2,10 @@ import { Button, Form, Input, Modal, Table, message } from "antd";
 import { PlusOutlined } from "@ant-design/icons";
 import { useEffect, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
+import { queryOptions, useQuery, useQueryClient } from "@tanstack/react-query";
 import PageWrapper from "@/modules/layout/PageWrapper/PageWrapper";
 import projectService from "./projectService";
-import useApiRequest from "@/modules/api/useApiRequest";
+import { ErrorInformation } from "@/modules/api/types";
 import { ProjectModel } from "@/domain/types";
 import { ORGANIZATION_NAME } from "../../config/actionTypes";
 import { useOrgPermissions } from "@/modules/permissions/useOrgPermissions";
@@ -19,27 +20,41 @@ type ProjectForm = {
   description?: string;
 };
 
+// Shared between the route loader (which primes the cache before navigation
+// commits) and this component's own useQuery, so the two never fetch twice.
+export const organizationProjectsQuery = (orgId: string) =>
+  queryOptions({
+    queryKey: ["organizationProjects", orgId],
+    queryFn: async () => {
+      const response = await projectService.listProjects(orgId);
+      if (response.isError) {
+        const errorInfo: ErrorInformation = {
+          title: response.error?.status || "Operation failed",
+          message: response.error?.message || "Failed due to an unknown error",
+        };
+        throw errorInfo;
+      }
+      return response.data!;
+    },
+  });
+
 export default function ProjectsPage({ organizationName, setOrganizationName }: Props) {
   const { id } = useParams();
   const navigate = useNavigate();
+  const queryClient = useQueryClient();
   const { permissions } = useOrgPermissions(id);
-  const [projects, setProjects] = useState<ProjectModel[]>([]);
   const [modalOpen, setModalOpen] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [form] = Form.useForm<ProjectForm>();
 
-  const { loading, execute, error } = useApiRequest({
-    action: () => projectService.listProjects(id!),
-    onReturn: (data) => {
-      setProjects(data);
-      const stored = sessionStorage.getItem(ORGANIZATION_NAME);
-      if (stored) setOrganizationName(stored);
-    },
-  });
+  const { data, isLoading: loading, error: queryError } = useQuery(organizationProjectsQuery(id!));
+  const projects = data ?? [];
+  const error = queryError as ErrorInformation | undefined;
 
   useEffect(() => {
-    execute();
-  }, []);
+    const stored = sessionStorage.getItem(ORGANIZATION_NAME);
+    if (stored) setOrganizationName(stored);
+  }, [setOrganizationName]);
 
   const openCreate = () => {
     form.resetFields();
@@ -53,7 +68,7 @@ export default function ProjectsPage({ organizationName, setOrganizationName }: 
       await projectService.createProject(id!, values);
       message.success("Project created");
       setModalOpen(false);
-      execute();
+      queryClient.invalidateQueries({ queryKey: ["organizationProjects", id] });
     } catch (err: any) {
       if (err?.errorFields) return;
       if (err?.response?.status === 403) {

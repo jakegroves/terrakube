@@ -33,7 +33,7 @@ x-api: &api_env
   AwsStorageAccessKey: $TK_OUTPUT_ACCESS_KEY
   AwsStorageSecretKey: $TK_OUTPUT_SECRET_KEY
   AwsStorageBucketName: $TK_OUTPUT_BUCKET_NAME
-  AwsStorageRegion: $TK_OUTPUT_STORAGE_REGION
+  AwsStorageRegion: $TK_OUTPUT_BUCKET_REGION
   AwsEndpoint: $TK_OUTPUT_ENDPOINT
   TerrakubeUiURL: https://terrakube.${DOMAIN}
   spring_profiles_active: demo
@@ -86,7 +86,7 @@ x-registry: &registry_env
   AwsStorageAccessKey: $TK_OUTPUT_ACCESS_KEY
   AwsStorageSecretKey: $TK_OUTPUT_SECRET_KEY
   AwsStorageBucketName: $TK_OUTPUT_BUCKET_NAME
-  AwsStorageRegion: $TK_OUTPUT_STORAGE_REGION
+  AwsStorageRegion: $TK_OUTPUT_BUCKET_REGION
   AwsEndpoint: $TK_OUTPUT_ENDPOINT
   AppClientId: example-app
   AppIssuerUri: https://terrakube-dex.${DOMAIN}/dex

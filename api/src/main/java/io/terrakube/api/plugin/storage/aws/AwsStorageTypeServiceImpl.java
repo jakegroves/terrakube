@@ -29,8 +29,6 @@ public class AwsStorageTypeServiceImpl implements StorageTypeService {
     private static final String BUCKET_STATE_JSON = "tfstate/%s/%s/state/%s.json";
     private static final String CONTEXT_JSON = "tfoutput/context/%s/context.json";
 
-    private static final String S3_ERROR_LOG = "S3 Not found: {}";
-
     private static final String TERRAFORM_TAR_GZ = "content/%s/terraformContent.tar.gz";
 
     @NonNull
@@ -52,7 +50,7 @@ public class AwsStorageTypeServiceImpl implements StorageTypeService {
                     ResponseTransformer.toBytes());
             data = objectBytes.asByteArray();
         } catch (Exception e) {
-            log.debug(S3_ERROR_LOG, e.getMessage());
+            log.warn("Failed to read {} from bucket {}: {}", objectKey, bucketName, e.getMessage(), e);
             data = new byte[0];
         }
         return data;

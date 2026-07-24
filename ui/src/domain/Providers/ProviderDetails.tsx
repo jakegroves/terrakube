@@ -1,13 +1,14 @@
 import { CopyOutlined, DeleteOutlined, DownOutlined, LinkOutlined, SettingOutlined } from "@ant-design/icons";
 import { Button, Card, Col, Divider, Dropdown, message, Popconfirm, Row, Space, Typography } from "antd";
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { queryOptions, useQuery } from "@tanstack/react-query";
 import { IconContext } from "react-icons";
 import { RiFolderHistoryLine } from "react-icons/ri";
 import { useNavigate, useParams } from "react-router-dom";
 import PageWrapper from "@/modules/layout/PageWrapper/PageWrapper";
 import { ORGANIZATION_ARCHIVE } from "../../config/actionTypes";
 import { getProvider, deleteProviderCascade } from "./providerService";
-import { ProviderModel, ProviderVersionModel } from "./types";
+import { ProviderVersionModel } from "./types";
 
 type Props = {
   organizationName: string;
@@ -24,49 +25,55 @@ type VersionInfo = {
   protocols: string;
 };
 
+// Shared between the route loader (which primes the cache before navigation
+// commits) and this component's own useQuery, so the two never fetch twice.
+export const providerDetailsQuery = (orgId: string, providerId: string) =>
+  queryOptions({
+    queryKey: ["provider", orgId, providerId],
+    queryFn: () => getProvider(orgId, providerId),
+  });
+
 export const ProviderDetails = ({ organizationName }: Props) => {
   const { orgid, providerid } = useParams<Params>();
   const navigate = useNavigate();
-  const [provider, setProvider] = useState<ProviderModel | null>(null);
-  const [versions, setVersions] = useState<VersionInfo[]>([]);
   const [selectedVersion, setSelectedVersion] = useState<string>("");
-  const [loading, setLoading] = useState(true);
   const [deleting, setDeleting] = useState(false);
 
-  // Load provider data
+  const {
+    data: providerData,
+    isLoading: loading,
+    error: queryError,
+  } = useQuery(providerDetailsQuery(orgid!, providerid!));
+  const provider = providerData?.data ?? null;
+  const versions = useMemo(() => {
+    const versionList: VersionInfo[] = [];
+    providerData?.included?.forEach((item) => {
+      if (item.type === "version") {
+        const v = item as ProviderVersionModel;
+        versionList.push({
+          id: v.id,
+          versionNumber: v.attributes.versionNumber,
+          protocols: v.attributes.protocols,
+        });
+      }
+    });
+    return versionList;
+  }, [providerData]);
+
   useEffect(() => {
-    if (!orgid || !providerid) return;
-    sessionStorage.setItem(ORGANIZATION_ARCHIVE, orgid);
+    if (orgid) sessionStorage.setItem(ORGANIZATION_ARCHIVE, orgid);
+  }, [orgid]);
 
-    setLoading(true);
-    getProvider(orgid, providerid)
-      .then((response) => {
-        setProvider(response.data);
+  useEffect(() => {
+    if (versions.length > 0) setSelectedVersion(versions[0].versionNumber);
+  }, [versions]);
 
-        const versionList: VersionInfo[] = [];
-        if (response.included) {
-          response.included.forEach((item) => {
-            if (item.type === "version") {
-              const v = item as ProviderVersionModel;
-              versionList.push({
-                id: v.id,
-                versionNumber: v.attributes.versionNumber,
-                protocols: v.attributes.protocols,
-              });
-            }
-          });
-        }
-        setVersions(versionList);
-        if (versionList.length > 0) {
-          setSelectedVersion(versionList[0].versionNumber);
-        }
-      })
-      .catch((error) => {
-        console.error("Error loading provider:", error);
-        message.error("Failed to load provider details");
-      })
-      .finally(() => setLoading(false));
-  }, [orgid, providerid]);
+  useEffect(() => {
+    if (queryError) {
+      console.error("Error loading provider:", queryError);
+      message.error("Failed to load provider details");
+    }
+  }, [queryError]);
 
   // Derive provider short name and namespace
   const providerName = provider?.attributes.name || "";

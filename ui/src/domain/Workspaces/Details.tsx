@@ -352,7 +352,7 @@ export const WorkspaceDetails = ({ setOrganizationName, selectedTab }: Props) =>
     queryFn: () =>
       axiosInstance
         .get(
-          `organization/${organizationId}/workspace/${id}?include=job,variable,history,schedule,vcs,agent,organization,webhook,reference,project&fields[job]=status,createdDate,createdBy,updatedDate,commitId,templateReference,via`
+          `organization/${organizationId}/workspace/${id}?include=job,variable,history,schedule,vcs,agent,organization,webhook,reference,project`
         )
         .then((response) => response.data),
     enabled: Boolean(id),

@@ -2,11 +2,12 @@ import { Button, Flex, List, Space } from "antd";
 import PageWrapper from "@/modules/layout/PageWrapper/PageWrapper";
 import { ImportOutlined, PlusOutlined } from "@ant-design/icons";
 import { useEffect, useMemo, useState } from "react";
+import { queryOptions, useQuery } from "@tanstack/react-query";
 import WorkspaceFilter from "@/modules/workspaces/components/WorkspaceFilter";
 import { WorkspaceListItem } from "@/modules/workspaces/types";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import workspaceService from "@/modules/workspaces/workspaceService";
-import useApiRequest from "@/modules/api/useApiRequest";
+import { ErrorInformation } from "@/modules/api/types";
 import { ORGANIZATION_ARCHIVE, ORGANIZATION_NAME } from "../../config/actionTypes";
 import { TagModel } from "./types";
 import WorkspaceCard from "@/modules/workspaces/components/WorkspaceCard";
@@ -22,13 +23,34 @@ type Props = {
   setOrganizationName: React.Dispatch<React.SetStateAction<string>>;
 };
 
+// Shared between the route loader (which primes the cache before navigation
+// commits) and this component's own useQuery, so the two never fetch twice.
+export const organizationWorkspacesQuery = (orgId: string) =>
+  queryOptions({
+    queryKey: ["organizationWorkspaces", orgId],
+    queryFn: async () => {
+      const response = await workspaceService.listWorkspaces(orgId);
+      if (response.isError) {
+        const errorInfo: ErrorInformation = {
+          title: response.error?.status || "Operation failed",
+          message: response.error?.message || "Failed due to an unknown error",
+        };
+        throw errorInfo;
+      }
+      return response.data!;
+    },
+  });
+
 export default function OrganizationsDetailPage({ organizationName, setOrganizationName }: Props) {
   const { id } = useParams();
   const navigate = useNavigate();
-  const [workspaces, setWorkspaces] = useState<WorkspaceListItem[]>([]);
   const [filteredWorkspaces, setFilteredWorkspaces] = useState<WorkspaceListItem[]>([]);
   const [sortOption, setSortOption] = useState<WorkspaceSortOption>(() => getStoredWorkspaceSortOption());
   const [tags, setTags] = useState<TagModel[]>([]);
+
+  const { data, isLoading: loading, error: queryError } = useQuery(organizationWorkspacesQuery(id!));
+  const workspaces = useMemo(() => data?.workspaces ?? [], [data]);
+  const error = queryError as ErrorInformation | undefined;
 
   const sortedWorkspaces = useMemo(
     () => sortWorkspaces(filteredWorkspaces, sortOption),
@@ -47,20 +69,20 @@ export default function OrganizationsDetailPage({ organizationName, setOrganizat
     setStoredWorkspaceSortOption(option);
   };
 
-  const { loading, execute, error } = useApiRequest({
-    action: () => workspaceService.listWorkspaces(id!),
-    onReturn: (data) => {
-      setWorkspaces(data.workspaces);
-      setFilteredWorkspaces(data.workspaces);
-      sessionStorage.setItem(ORGANIZATION_NAME, data.organizationName);
-      setOrganizationName(data.organizationName);
-    },
-  });
-
   useEffect(() => {
     sessionStorage.setItem(ORGANIZATION_ARCHIVE, id!);
-    execute();
-  }, []);
+  }, [id]);
+
+  useEffect(() => {
+    setFilteredWorkspaces(workspaces);
+  }, [workspaces]);
+
+  useEffect(() => {
+    if (data) {
+      sessionStorage.setItem(ORGANIZATION_NAME, data.organizationName);
+      setOrganizationName(data.organizationName);
+    }
+  }, [data, setOrganizationName]);
 
   const handleCreateWorkspace = () => {
     navigate("/workspaces/create");
