@@ -157,6 +157,7 @@ public class GitHubWebhookService extends WebhookServiceBase {
                         result.setPrComment(true);
                         result.setCommentBody(commentBody);
                         result.setCommentCommand(command);
+                        result.setCommentId(rootNode.path("comment").path("id").asText());
                         result.setPrNumber(issueNode.path("number").asInt());
                         result.setCreatedBy(rootNode.path("comment").path("user").path("login").asText());
 
@@ -455,6 +456,20 @@ public class GitHubWebhookService extends WebhookServiceBase {
         }
         log.error("Failed to update PR comment {} on workspace {}", commentId, workspace.getName());
         return false;
+    }
+
+    public void addCommentReaction(Workspace workspace, String commentId) {
+        String[] ownerAndRepo = extractOwnerAndRepo(workspace.getSource());
+        String apiUrl = workspace.getVcs().getApiUrl() + "/repos/" + String.join("/", ownerAndRepo)
+                + "/issues/comments/" + commentId + "/reactions";
+
+        ResponseEntity<String> response = callGitHubApi(workspace.getVcs(), ownerAndRepo, "{\"content\":\"eyes\"}", apiUrl,
+                HttpMethod.POST);
+        if (response != null && response.getStatusCode().is2xxSuccessful()) {
+            log.info("Added eyes reaction to PR comment {} in workspace {}", commentId, workspace.getName());
+        } else {
+            log.error("Failed to add reaction to PR comment {} in workspace {}", commentId, workspace.getName());
+        }
     }
 
     public WebhookResult parseGitHubPayload(String jsonPayload, Map<String, String> headers, Vcs vcs) {

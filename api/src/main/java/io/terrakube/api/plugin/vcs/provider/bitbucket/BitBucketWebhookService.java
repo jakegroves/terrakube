@@ -202,6 +202,7 @@ public class BitBucketWebhookService extends WebhookServiceBase {
             result.setPrComment(true);
             result.setCommentBody(commentBody);
             result.setCommentCommand(command);
+            result.setCommentId(rootNode.path("comment").path("id").asText());
             result.setCreatedBy(rootNode.path("comment").path("user").path("display_name").asText());
 
             JsonNode pullRequestNode = rootNode.path("pullrequest");

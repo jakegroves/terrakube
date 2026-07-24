@@ -125,6 +125,8 @@ public class WebhookService {
         String command = webhookResult.getCommentCommand();
         log.info("PR comment command '{}' received for workspace {}", command, workspace.getName());
 
+        acknowledgeCommand(workspace, webhookResult);
+
         WebhookEvent matchedEvent = findMatchingEvent(webhookResult, webhook);
 
         if ("plan".equals(command)) {
@@ -159,6 +161,32 @@ public class WebhookService {
             savedJob.setAutoApply(true);
             jobRepository.save(savedJob);
             sendCommitStatus(savedJob);
+        }
+    }
+
+    /**
+     * Adds an "eyes" reaction to the triggering comment as soon as a valid terrakube plan/apply
+     * command is recognized, so the user gets immediate feedback that the command was seen while
+     * the job (and later PR comment) is still running. Bitbucket Cloud has no comment-reaction API,
+     * so it's a no-op there. Failures here must never block the actual plan/apply from proceeding.
+     */
+    private void acknowledgeCommand(Workspace workspace, WebhookResult webhookResult) {
+        String commentId = webhookResult.getCommentId();
+        if (commentId == null || commentId.isEmpty()) return;
+
+        try {
+            switch (workspace.getVcs().getVcsType()) {
+                case GITHUB:
+                    gitHubWebhookService.addCommentReaction(workspace, commentId);
+                    break;
+                case GITLAB:
+                    gitLabWebhookService.addNoteReaction(workspace, webhookResult.getPrNumber(), commentId);
+                    break;
+                default:
+                    break;
+            }
+        } catch (Exception e) {
+            log.warn("Failed to acknowledge PR comment command for workspace {}: {}", workspace.getName(), e.getMessage());
         }
     }
 

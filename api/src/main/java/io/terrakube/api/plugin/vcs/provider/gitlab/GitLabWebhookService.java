@@ -209,6 +209,7 @@ public class GitLabWebhookService extends WebhookServiceBase {
             result.setPrComment(true);
             result.setCommentBody(commentBody);
             result.setCommentCommand(command);
+            result.setCommentId(noteNode.path("id").asText());
             result.setEvent("note");
             result.setCreatedBy(rootNode.path("user").path("username").asText());
 
@@ -687,6 +688,37 @@ public class GitLabWebhookService extends WebhookServiceBase {
             }
             log.error("Error updating MR note {} on MR !{} in workspace {}", noteId, job.getPrNumber(), workspace.getName(), e);
             return false;
+        }
+    }
+
+    public void addNoteReaction(Workspace workspace, Number prNumber, String noteId) {
+        try {
+            String ownerAndRepo = extractOwnerAndRepoGitlab(workspace.getSource());
+            String projectId = getGitlabProjectId(ownerAndRepo, workspace.getVcs().getAccessToken(), workspace.getVcs().getApiUrl());
+
+            WebClient webClient = webClientBuilder
+                    .baseUrl(workspace.getVcs().getApiUrl())
+                    .defaultHeader(HttpHeaders.CONTENT_TYPE, "application/json")
+                    .defaultHeader(HttpHeaders.AUTHORIZATION, "Bearer " + workspace.getVcs().getAccessToken())
+                    .clientConnector(new ReactorClientHttpConnector(HttpClient.create().proxyWithSystemProperties()))
+                    .build();
+
+            Map<String, Object> requestBody = new HashMap<>();
+            requestBody.put("name", "eyes");
+
+            webClient.post()
+                    .uri("/projects/{id}/merge_requests/{iid}/notes/{noteId}/award_emoji", projectId, prNumber, noteId)
+                    .bodyValue(requestBody)
+                    .retrieve()
+                    .bodyToMono(String.class)
+                    .block();
+
+            log.info("Added eyes award emoji to MR note {} in workspace {}", noteId, workspace.getName());
+        } catch (Exception e) {
+            if (e instanceof InterruptedException) {
+                Thread.currentThread().interrupt();
+            }
+            log.error("Error adding award emoji to MR note {} in workspace {}", noteId, workspace.getName(), e);
         }
     }
 
