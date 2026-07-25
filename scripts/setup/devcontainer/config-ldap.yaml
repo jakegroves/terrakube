@@ -1,4 +1,4 @@
-issuer: https://terrakube-dex.platform.local/dex
+issuer: https://upgraded-fishstick-wrjgx4769rgf5vpq-5556.app.github.dev/dex
 
 storage:
   type: memory
@@ -65,7 +65,7 @@ connectors:
 staticClients:
 - id: example-app
   redirectURIs:
-  - 'https://terrakube.platform.local'
+  - 'https://upgraded-fishstick-wrjgx4769rgf5vpq-3000.app.github.dev'
   - '/device/callback'
   - 'http://localhost:10000/login'
   - 'http://localhost:10001/login'

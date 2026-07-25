@@ -1,0 +1,19 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(yarn add *)",
+      "Bash(npx tsc *)",
+      "Bash(echo \"EXIT:$?\")",
+      "Bash(npx eslint *)",
+      "Bash(yarn build *)",
+      "Bash(netstat -tlnp)",
+      "Bash(docker info *)",
+      "Bash(yarn jest *)",
+      "Bash(npx playwright *)",
+      "Bash(npx jest *)",
+      "Bash(node smoke.mjs)",
+      "Bash(mvn -q compile)",
+      "Bash(echo \"Exit code: $?\")"
+    ]
+  }
+}
