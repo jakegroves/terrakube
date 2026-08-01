@@ -48,16 +48,21 @@ public class PersistentExecutorService {
     @Value("${io.terrakube.token.internal}")
     private String base64KeyInternal;
 
+    @Autowired
+    private PersistentExecutorQueueService persistentExecutorQueueService;
+
     // Manual all-args constructor because Lombok will not copy @Value
     public PersistentExecutorService(
         @Value("${io.terrakube.executor.url}") String executorUrl,
         @Autowired GlobalVarRepository globalVarRepository,
         @Autowired WebClient.Builder webClientBuilder,
-        @Value("${io.terrakube.token.internal}") String internalJwtSecret) {
+        @Value("${io.terrakube.token.internal}") String internalJwtSecret,
+        @Autowired PersistentExecutorQueueService persistentExecutorQueueService) {
             this.executorUrl = executorUrl;
             this.globalVarRepository = globalVarRepository;
             this.webClientBuilder = webClientBuilder;
             this.base64KeyInternal = internalJwtSecret;
+            this.persistentExecutorQueueService = persistentExecutorQueueService;
     }
 
     private static final int CONNECT_TIMEOUT_MS = 10_000;
@@ -98,6 +103,7 @@ public class PersistentExecutorService {
                 String hint = String.format(
                         " Cannot connect to executor at %s. Check that the executor is running and reachable (io.terrakube.executor.url / AzBuilderExecutorUrl).",
                         executorUrlForRequest);
+                persistentExecutorQueueService.registerWaiting(job);
                 throw new ExecutorUnavailableException(new Throwable(ex.getMessage() + hint, ex));
             }
             throw new ExecutionException(new Throwable(ex.getMessage(), ex));
@@ -116,6 +122,8 @@ public class PersistentExecutorService {
                     response.getBody());
             throw new ExecutionException(new Throwable(message));
         }
+
+        persistentExecutorQueueService.acquireSlot(job);
     }
 
     private String getExecutorUrl(Job job) throws URISyntaxException {

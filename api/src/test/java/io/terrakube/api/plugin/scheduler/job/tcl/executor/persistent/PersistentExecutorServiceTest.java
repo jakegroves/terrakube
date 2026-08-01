@@ -3,12 +3,16 @@ package io.terrakube.api.plugin.scheduler.job.tcl.executor.persistent;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.Mockito.doNothing;
 import static org.mockito.Mockito.doReturn;
+import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.spy;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 
+import java.io.IOException;
+import java.net.URI;
 import java.net.URISyntaxException;
 import java.util.HashMap;
 import java.util.Optional;
@@ -17,6 +21,8 @@ import io.terrakube.api.helpers.FailUnkownMethod;
 import org.apache.commons.lang3.RandomStringUtils;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.HttpMethod;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
@@ -26,9 +32,11 @@ import org.springframework.web.reactive.function.client.WebClient.RequestBodySpe
 import org.springframework.web.reactive.function.client.WebClient.RequestBodyUriSpec;
 import org.springframework.web.reactive.function.client.WebClient.RequestHeadersSpec;
 import org.springframework.web.reactive.function.client.WebClient.ResponseSpec;
+import org.springframework.web.reactive.function.client.WebClientRequestException;
 
 import io.terrakube.api.plugin.scheduler.job.tcl.executor.ExecutionException;
 import io.terrakube.api.plugin.scheduler.job.tcl.executor.ExecutorContext;
+import io.terrakube.api.plugin.scheduler.job.tcl.executor.ExecutorUnavailableException;
 import io.terrakube.api.repository.GlobalVarRepository;
 import io.terrakube.api.rs.Organization;
 import io.terrakube.api.rs.agent.Agent;
@@ -49,12 +57,16 @@ public class PersistentExecutorServiceTest {
     private RequestHeadersSpec requestHeadersSpec;
     private ResponseSpec responseSpec;
     private ResponseEntity<ExecutorContext> responseEntity;
+    private PersistentExecutorQueueService persistentExecutorQueueService;
 
     @SuppressWarnings("unchecked")
     @BeforeEach
     void setup() {
         globalVarRepository = mock(GlobalVarRepository.class, new FailUnkownMethod<>());
         doReturn(Optional.ofNullable(null)).when(globalVarRepository).findByOrganizationAndKey(any(), any());
+
+        persistentExecutorQueueService = mock(PersistentExecutorQueueService.class, new FailUnkownMethod<>());
+        doNothing().when(persistentExecutorQueueService).acquireSlot(any());
 
         webClientBuilder = mock(WebClient.Builder.class, new FailUnkownMethod<>());
         webClient = mock(WebClient.class, new FailUnkownMethod<>());
@@ -81,7 +93,8 @@ public class PersistentExecutorServiceTest {
                 "http://default-executor/",
                 globalVarRepository,
                 webClientBuilder,
-                RandomStringUtils.randomAlphanumeric(32)));
+                RandomStringUtils.randomAlphanumeric(32),
+                persistentExecutorQueueService));
         doReturn(RandomStringUtils.randomAlphanumeric(64)).when(persistentExecutorService).generateSystemToken();
         return persistentExecutorService;
     }
@@ -176,5 +189,28 @@ public class PersistentExecutorServiceTest {
 
         verify(requestBodyUriSpec).uri("http://ze-agent/api/v1/terraform-rs");
         verify(requestHeadersSpec, times(1)).retrieve();
+    }
+
+    @Test
+    public void successfulSendAcquiresQueueSlot() throws ExecutionException {
+        doReturn(HttpStatus.ACCEPTED).when(responseEntity).getStatusCode();
+        doReturn(response()).when(responseEntity).getBody();
+
+        subject().send(jobOnDefaultExecutor(), context());
+
+        verify(persistentExecutorQueueService, times(1)).acquireSlot(any());
+    }
+
+    @Test
+    public void connectionFailureRegistersInQueueBeforeThrowing() {
+        doThrow(new WebClientRequestException(
+                        new IOException("connection refused"), HttpMethod.POST,
+                        URI.create("http://default-executor/"), new HttpHeaders()))
+                .when(requestHeadersSpec).retrieve();
+        doNothing().when(persistentExecutorQueueService).registerWaiting(any());
+
+        assertThrows(ExecutorUnavailableException.class, () -> subject().send(jobOnDefaultExecutor(), context()));
+
+        verify(persistentExecutorQueueService, times(1)).registerWaiting(any());
     }
 }
