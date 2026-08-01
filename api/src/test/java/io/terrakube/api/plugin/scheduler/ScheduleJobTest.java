@@ -35,6 +35,7 @@ import io.terrakube.api.plugin.scheduler.job.tcl.executor.ExecutionException;
 import io.terrakube.api.plugin.scheduler.job.tcl.executor.ExecutorService;
 import io.terrakube.api.plugin.scheduler.job.tcl.executor.ExecutorUnavailableException;
 import io.terrakube.api.plugin.scheduler.job.tcl.executor.ephemeral.EphemeralExecutorService;
+import io.terrakube.api.plugin.scheduler.job.tcl.executor.persistent.PersistentExecutorQueueService;
 import io.terrakube.api.plugin.scheduler.job.tcl.model.Flow;
 import io.terrakube.api.plugin.scheduler.job.tcl.model.FlowType;
 import io.terrakube.api.plugin.scheduler.job.tcl.model.ScheduleTemplate;
@@ -88,6 +89,7 @@ public class ScheduleJobTest {
     WorkspaceVariableValidationService workspaceVariableValidationService;
     RedisTemplate<String, Object> redisTemplate;
     ValueOperations<String, Object> valueOperations;
+    PersistentExecutorQueueService persistentExecutorQueueService;
 
     UUID stepId = UUID.randomUUID();
 
@@ -117,6 +119,9 @@ public class ScheduleJobTest {
         lenient().doReturn(valueOperations).when(redisTemplate).opsForValue();
         lenient().doReturn(true).when(valueOperations).setIfAbsent(any(), any(), any(Duration.class));
         lenient().doReturn(true).when(redisTemplate).delete(anyString());
+
+        persistentExecutorQueueService = mock(PersistentExecutorQueueService.class, new FailUnkownMethod<PersistentExecutorQueueService>());
+        lenient().doReturn(false).when(persistentExecutorQueueService).isRegistered(any());
     }
 
     private ScheduleJob subject() {
@@ -137,7 +142,8 @@ public class ScheduleJobTest {
                 prCommentService,
                 globalVarRepository,
                 variableRepository,
-                workspaceVariableValidationService);
+                workspaceVariableValidationService,
+                persistentExecutorQueueService);
     }
 
     private Job job(JobStatus status) {
@@ -294,6 +300,95 @@ public class ScheduleJobTest {
         verify(stepRepository, times(0)).save(any());
         verify(gitLabWebhookService, times(0)).sendCommitStatus(any(), any());
         Assertions.assertEquals(JobStatus.pending, job.getStatus());
+    }
+
+    @Test
+    public void pendingJobWaitsWhenRegisteredButNotHeadOfQueue() throws Exception {
+        Job job = job(JobStatus.pending);
+        job.setPlanChanges(true);
+
+        Flow flow = new Flow();
+        flow.setType(FlowType.terraformPlan.name());
+
+        doReturn(false).when(tclService).isTemplatePlanOnly(any());
+        doReturn(Optional.of(Collections.emptyList()))
+                .when(jobRepository)
+                .findByWorkspaceAndStatusNotInAndIdLessThan(
+                        any(Workspace.class),
+                        anyList(),
+                        anyInt());
+        doReturn(job).when(tclService).initJobConfiguration(any(Job.class));
+        doReturn(flow).when(tclService).getNextFlow(any());
+        doReturn(stepId.toString()).when(tclService).getCurrentStepId(any());
+        doReturn(job.getWorkspace()).when(workspaceRepository).save(any());
+        doReturn(true).when(persistentExecutorQueueService).isRegistered(job);
+        doReturn(false).when(persistentExecutorQueueService).canDispatch(job);
+
+        Assert.assertFalse(subject().runExecution(job));
+
+        verify(executorService, times(0)).execute(any(), any(), any());
+        Assertions.assertEquals(JobStatus.pending, job.getStatus());
+    }
+
+    @Test
+    public void pendingJobDispatchesWhenRegisteredAndHeadOfQueue() throws Exception {
+        Job job = job(JobStatus.pending);
+        job.setPlanChanges(true);
+
+        Flow flow = new Flow();
+        flow.setType(FlowType.terraformPlan.name());
+
+        doReturn(false).when(tclService).isTemplatePlanOnly(any());
+        doReturn(Optional.of(Collections.emptyList()))
+                .when(jobRepository)
+                .findByWorkspaceAndStatusNotInAndIdLessThan(
+                        any(Workspace.class),
+                        anyList(),
+                        anyInt());
+        doReturn(job).when(tclService).initJobConfiguration(any(Job.class));
+        doReturn(flow).when(tclService).getNextFlow(any());
+        doReturn(stepId.toString()).when(tclService).getCurrentStepId(any());
+        doReturn(job.getWorkspace()).when(workspaceRepository).save(any());
+        doReturn(job).when(jobRepository).save(any());
+        doReturn(true).when(persistentExecutorQueueService).isRegistered(job);
+        doReturn(true).when(persistentExecutorQueueService).canDispatch(job);
+        doNothing().when(executorService).execute(any(), any(), any());
+
+        Assert.assertTrue(subject().runExecution(job));
+
+        verify(executorService, times(1)).execute(any(), any(), any());
+        Assertions.assertEquals(JobStatus.queue, job.getStatus());
+    }
+
+    @Test
+    public void pendingJobDispatchesNormallyWhenNeverRegistered() throws Exception {
+        Job job = job(JobStatus.pending);
+        job.setPlanChanges(true);
+
+        Flow flow = new Flow();
+        flow.setType(FlowType.terraformPlan.name());
+
+        doReturn(false).when(tclService).isTemplatePlanOnly(any());
+        doReturn(Optional.of(Collections.emptyList()))
+                .when(jobRepository)
+                .findByWorkspaceAndStatusNotInAndIdLessThan(
+                        any(Workspace.class),
+                        anyList(),
+                        anyInt());
+        doReturn(job).when(tclService).initJobConfiguration(any(Job.class));
+        doReturn(flow).when(tclService).getNextFlow(any());
+        doReturn(stepId.toString()).when(tclService).getCurrentStepId(any());
+        doReturn(job.getWorkspace()).when(workspaceRepository).save(any());
+        doReturn(job).when(jobRepository).save(any());
+        doNothing().when(executorService).execute(any(), any(), any());
+        // isRegistered defaults to false via the lenient stub in setup() - canDispatch is
+        // never consulted for a job that was never registered.
+
+        Assert.assertTrue(subject().runExecution(job));
+
+        verify(executorService, times(1)).execute(any(), any(), any());
+        verify(persistentExecutorQueueService, never()).canDispatch(any());
+        Assertions.assertEquals(JobStatus.queue, job.getStatus());
     }
 
     @Test

@@ -4,6 +4,7 @@ import io.terrakube.api.plugin.scheduler.job.tcl.TclService;
 import io.terrakube.api.plugin.scheduler.job.tcl.executor.ExecutionException;
 import io.terrakube.api.plugin.scheduler.job.tcl.executor.ExecutorService;
 import io.terrakube.api.plugin.scheduler.job.tcl.executor.ExecutorUnavailableException;
+import io.terrakube.api.plugin.scheduler.job.tcl.executor.persistent.PersistentExecutorQueueService;
 import io.terrakube.api.plugin.scheduler.job.tcl.model.Flow;
 import io.terrakube.api.plugin.scheduler.job.tcl.model.FlowType;
 import io.terrakube.api.plugin.scheduler.job.tcl.model.ScheduleTemplate;
@@ -91,6 +92,7 @@ public class ScheduleJob implements org.quartz.Job {
     GlobalVarRepository globalVarRepository;
     VariableRepository variableRepository;
     WorkspaceVariableValidationService workspaceVariableValidationService;
+    PersistentExecutorQueueService persistentExecutorQueueService;
 
 
     @Transactional
@@ -285,6 +287,10 @@ public class ScheduleJob implements org.quartz.Job {
                 case terraformApply:
                 case terraformDestroy:
                 case customScripts:
+                    if (persistentExecutorQueueService.isRegistered(job) && !persistentExecutorQueueService.canDispatch(job)) {
+                        log.info("Job {} Step {} waiting for its turn in the persistent executor queue", job.getId(), stepId);
+                        return false;
+                    }
                     if (!acquireDispatchLock(job)) {
                         log.warn("Job {} Step {} is already being dispatched by another scheduler run, will retry", job.getId(), stepId);
                         return false;
@@ -472,6 +478,10 @@ public class ScheduleJob implements org.quartz.Job {
             String stepId = tclService.getCurrentStepId(job);
             job.setApprovalTeam("");
             jobRepository.save(job);
+            if (persistentExecutorQueueService.isRegistered(job) && !persistentExecutorQueueService.canDispatch(job)) {
+                log.info("Job {} Step {} waiting for its turn in the persistent executor queue", job.getId(), stepId);
+                return false;
+            }
             if (!acquireDispatchLock(job)) {
                 log.warn("Job {} Step {} is already being dispatched by another scheduler run, will retry", job.getId(), stepId);
                 return false;
