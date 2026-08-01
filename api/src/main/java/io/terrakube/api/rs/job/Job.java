@@ -1,5 +1,6 @@
 package io.terrakube.api.rs.job;
 
+import java.time.Instant;
 import java.util.List;
 
 import io.terrakube.api.plugin.security.audit.GenericAuditFields;
@@ -136,6 +137,10 @@ public class Job extends GenericAuditFields {
 
     @OneToMany(mappedBy = "job", cascade = CascadeType.REMOVE, orphanRemoval = true)
     private List<Address> address;
+
+    @Exclude
+    @Column(name = "persistent_slot_acquired_at")
+    private Instant persistentSlotAcquiredAt;
 
 }
 

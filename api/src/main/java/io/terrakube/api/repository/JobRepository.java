@@ -44,4 +44,7 @@ public interface JobRepository extends JpaRepository<Job, Integer> {
 
     @Query(value = "SELECT id FROM job WHERE workspace_id = :workspaceId", nativeQuery = true)
     List<Integer> findAllJobIdsByWorkspaceIncludingDeleted(@Param("workspaceId") String workspaceId);
+
+    @Query(value = "SELECT id FROM job WHERE persistent_slot_acquired_at IS NOT NULL", nativeQuery = true)
+    List<Integer> findIdsWithActivePersistentSlot();
 }
