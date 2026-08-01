@@ -7,7 +7,6 @@ import java.util.Set;
 
 import org.quartz.SchedulerException;
 import org.springframework.beans.factory.annotation.Value;
-import org.springframework.dao.DataAccessException;
 import org.springframework.data.redis.core.RedisTemplate;
 import org.springframework.stereotype.Service;
 
@@ -47,7 +46,7 @@ public class PersistentExecutorQueueService {
     public boolean isRegistered(Job job) {
         try {
             return redisTemplate.opsForZSet().score(WAIT_QUEUE_KEY, String.valueOf(job.getId())) != null;
-        } catch (DataAccessException e) {
+        } catch (RuntimeException e) {
             log.warn("Could not check persistent executor wait queue for Job {}: {}", job.getId(), e.getMessage());
             return false;
         }
@@ -56,7 +55,7 @@ public class PersistentExecutorQueueService {
     public void registerWaiting(Job job) {
         try {
             redisTemplate.opsForZSet().add(WAIT_QUEUE_KEY, String.valueOf(job.getId()), job.getId());
-        } catch (DataAccessException e) {
+        } catch (RuntimeException e) {
             log.warn("Could not register Job {} in the persistent executor wait queue: {}", job.getId(), e.getMessage());
         }
     }
@@ -73,7 +72,7 @@ public class PersistentExecutorQueueService {
                 return false;
             }
             return String.valueOf(job.getId()).equals(head.iterator().next());
-        } catch (DataAccessException e) {
+        } catch (RuntimeException e) {
             log.warn("Could not reach Redis to check persistent executor queue position for Job {}, will retry: {}", job.getId(), e.getMessage());
             return false;
         }
@@ -83,7 +82,7 @@ public class PersistentExecutorQueueService {
         try {
             redisTemplate.opsForZSet().remove(WAIT_QUEUE_KEY, String.valueOf(job.getId()));
             redisTemplate.opsForSet().add(ACTIVE_SLOTS_KEY, String.valueOf(job.getId()));
-        } catch (DataAccessException e) {
+        } catch (RuntimeException e) {
             log.warn("Could not record Job {} as holding a persistent executor slot in Redis: {}", job.getId(), e.getMessage());
         }
         job.setPersistentSlotAcquiredAt(Instant.now());
@@ -95,7 +94,7 @@ public class PersistentExecutorQueueService {
         try {
             redisTemplate.opsForSet().remove(ACTIVE_SLOTS_KEY, String.valueOf(job.getId()));
             redisTemplate.opsForZSet().remove(WAIT_QUEUE_KEY, String.valueOf(job.getId()));
-        } catch (DataAccessException e) {
+        } catch (RuntimeException e) {
             log.warn("Could not release Job {} from the persistent executor queue/slots in Redis: {}", job.getId(), e.getMessage());
         }
         if (held) {
@@ -143,7 +142,7 @@ public class PersistentExecutorQueueService {
                     log.warn("Could not wake queued Job {} after a persistent executor slot freed up: {}", nextJobId, e.getMessage());
                 }
             });
-        } catch (DataAccessException e) {
+        } catch (RuntimeException e) {
             log.warn("Could not check persistent executor wait queue for a job to wake: {}", e.getMessage());
         }
     }
