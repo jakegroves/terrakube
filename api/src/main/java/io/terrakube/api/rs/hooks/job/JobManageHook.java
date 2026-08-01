@@ -8,6 +8,7 @@ import io.terrakube.api.repository.WorkspaceRepository;
 import lombok.AllArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import io.terrakube.api.plugin.scheduler.ScheduleJobService;
+import io.terrakube.api.plugin.scheduler.job.tcl.executor.persistent.PersistentExecutorQueueService;
 import io.terrakube.api.rs.job.Job;
 import io.terrakube.api.rs.job.JobStatus;
 import org.quartz.SchedulerException;
@@ -22,6 +23,7 @@ public class JobManageHook implements LifeCycleHook<Job> {
 
     private ScheduleJobService scheduleJobService;
     private WorkspaceRepository workspaceRepository;
+    private PersistentExecutorQueueService persistentExecutorQueueService;
 
     @Override
     public void execute(LifeCycleHookBinding.Operation operation, LifeCycleHookBinding.TransactionPhase transactionPhase, Job job, RequestScope requestScope, Optional<ChangeSpec> optional) {
@@ -34,6 +36,7 @@ public class JobManageHook implements LifeCycleHook<Job> {
                     break;
                 case UPDATE:
                     updateWorkspaceStatus(job);
+                    persistentExecutorQueueService.releaseSlot(job);
                     if(job.getStatus().equals(JobStatus.cancelled)) {
                         scheduleJobService.deleteJobContext(job.getId());
                     } else {
