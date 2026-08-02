@@ -1,99 +1,108 @@
 package io.terrakube.api.rs.hooks.job;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.Mockito.doNothing;
-import static org.mockito.Mockito.doReturn;
-import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
 
 import java.util.Optional;
 
-import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
 import com.yahoo.elide.annotation.LifeCycleHookBinding;
+import com.yahoo.elide.core.security.RequestScope;
 
-import io.terrakube.api.helpers.FailUnkownMethod;
 import io.terrakube.api.plugin.scheduler.ScheduleJobService;
-import io.terrakube.api.plugin.scheduler.job.tcl.executor.persistent.PersistentExecutorQueueService;
+import io.terrakube.api.plugin.scheduler.job.tcl.TclService;
+import io.terrakube.api.repository.JobRepository;
 import io.terrakube.api.repository.WorkspaceRepository;
 import io.terrakube.api.rs.job.Job;
 import io.terrakube.api.rs.job.JobStatus;
+import io.terrakube.api.rs.job.JobStatusTransitionService;
 import io.terrakube.api.rs.workspace.Workspace;
 
-public class JobManageHookTest {
+class JobManageHookTest {
 
-    ScheduleJobService scheduleJobService;
-    WorkspaceRepository workspaceRepository;
-    PersistentExecutorQueueService persistentExecutorQueueService;
+    private ScheduleJobService scheduleJobService;
+    private WorkspaceRepository workspaceRepository;
+    private JobRepository jobRepository;
+    private TclService tclService;
+    private JobStatusTransitionService jobStatusTransitionService;
 
-    @BeforeEach
-    void setup() {
-        scheduleJobService = mock(ScheduleJobService.class, new FailUnkownMethod<ScheduleJobService>());
-        workspaceRepository = mock(WorkspaceRepository.class, new FailUnkownMethod<WorkspaceRepository>());
-        persistentExecutorQueueService = mock(PersistentExecutorQueueService.class, new FailUnkownMethod<PersistentExecutorQueueService>());
-        // releaseSlot is called unconditionally on every UPDATE, including by the CREATE test
-        // below where it's asserted never() - lenient() so that assertion doesn't need its own stub.
-        lenient().doNothing().when(persistentExecutorQueueService).releaseSlot(any());
+    private JobManageHook newHook() {
+        scheduleJobService = mock(ScheduleJobService.class);
+        workspaceRepository = mock(WorkspaceRepository.class);
+        jobRepository = mock(JobRepository.class);
+        tclService = mock(TclService.class);
+        jobStatusTransitionService = mock(JobStatusTransitionService.class);
+        return new JobManageHook(scheduleJobService, workspaceRepository, jobRepository, tclService, jobStatusTransitionService);
     }
 
-    private JobManageHook subject() {
-        return new JobManageHook(scheduleJobService, workspaceRepository, persistentExecutorQueueService);
-    }
-
-    private Job job(JobStatus status) {
+    private Job jobWithStatus(JobStatus status) {
         Job job = new Job();
-        job.setId(4711);
+        job.setId(42);
         job.setStatus(status);
-        job.setWorkspace(new Workspace());
+        job.setTemplateReference("template-1");
+        Workspace workspace = new Workspace();
+        workspace.setName("ws-1");
+        job.setWorkspace(workspace);
         return job;
     }
 
     @Test
-    public void updateToPendingReleasesSlotAndCreatesJobContextNow() throws Exception {
-        Job job = job(JobStatus.pending);
-        doReturn(new Workspace()).when(workspaceRepository).save(any());
-        doNothing().when(scheduleJobService).createJobContextNow(any());
+    void createSetsPlanOnlyFromTclServiceAndSavesJob() throws Exception {
+        JobManageHook hook = newHook();
+        when(tclService.isTemplatePlanOnly("template-1")).thenReturn(true);
 
-        subject().execute(LifeCycleHookBinding.Operation.UPDATE, LifeCycleHookBinding.TransactionPhase.POSTCOMMIT, job, null, Optional.empty());
+        Job job = jobWithStatus(JobStatus.pending);
 
-        verify(persistentExecutorQueueService).releaseSlot(job);
-        verify(scheduleJobService).createJobContextNow(job);
+        hook.execute(LifeCycleHookBinding.Operation.CREATE, LifeCycleHookBinding.TransactionPhase.POSTCOMMIT,
+                job, mock(RequestScope.class), Optional.empty());
+
+        assertThat(job.isPlanOnly()).isTrue();
+        verify(jobStatusTransitionService).applyBookkeeping(job);
+        verify(jobRepository).save(job);
     }
 
     @Test
-    public void updateToRunningReleasesSlotButSkipsCreateJobContextNow() throws Exception {
-        Job job = job(JobStatus.running);
-        doReturn(new Workspace()).when(workspaceRepository).save(any());
+    void updateToRunningSkipsCreateJobContextNow() throws Exception {
+        JobManageHook hook = newHook();
 
-        subject().execute(LifeCycleHookBinding.Operation.UPDATE, LifeCycleHookBinding.TransactionPhase.POSTCOMMIT, job, null, Optional.empty());
+        Job job = jobWithStatus(JobStatus.running);
 
-        verify(persistentExecutorQueueService).releaseSlot(job);
+        hook.execute(LifeCycleHookBinding.Operation.UPDATE, LifeCycleHookBinding.TransactionPhase.POSTCOMMIT,
+                job, mock(RequestScope.class), Optional.empty());
+
+        verify(jobStatusTransitionService).applyBookkeeping(job);
+        verify(jobRepository).save(job);
         verify(scheduleJobService, never()).createJobContextNow(any());
     }
 
     @Test
-    public void updateToCancelledReleasesSlotAndDeletesJobContext() throws Exception {
-        Job job = job(JobStatus.cancelled);
-        doReturn(new Workspace()).when(workspaceRepository).save(any());
-        doNothing().when(scheduleJobService).deleteJobContext(job.getId());
+    void updateToCancelledDeletesJobContext() throws Exception {
+        JobManageHook hook = newHook();
 
-        subject().execute(LifeCycleHookBinding.Operation.UPDATE, LifeCycleHookBinding.TransactionPhase.POSTCOMMIT, job, null, Optional.empty());
+        Job job = jobWithStatus(JobStatus.cancelled);
 
-        verify(persistentExecutorQueueService).releaseSlot(job);
+        hook.execute(LifeCycleHookBinding.Operation.UPDATE, LifeCycleHookBinding.TransactionPhase.POSTCOMMIT,
+                job, mock(RequestScope.class), Optional.empty());
+
+        verify(jobStatusTransitionService).applyBookkeeping(job);
         verify(scheduleJobService).deleteJobContext(job.getId());
     }
 
     @Test
-    public void createDoesNotReleaseASlot() throws Exception {
-        Job job = job(JobStatus.pending);
-        doReturn(new Workspace()).when(workspaceRepository).save(any());
-        doNothing().when(scheduleJobService).createJobContext(job);
+    void updateToPendingCreatesJobContextNow() throws Exception {
+        JobManageHook hook = newHook();
 
-        subject().execute(LifeCycleHookBinding.Operation.CREATE, LifeCycleHookBinding.TransactionPhase.POSTCOMMIT, job, null, Optional.empty());
+        Job job = jobWithStatus(JobStatus.pending);
 
-        verify(persistentExecutorQueueService, never()).releaseSlot(any());
+        hook.execute(LifeCycleHookBinding.Operation.UPDATE, LifeCycleHookBinding.TransactionPhase.POSTCOMMIT,
+                job, mock(RequestScope.class), Optional.empty());
+
+        verify(jobStatusTransitionService).applyBookkeeping(job);
+        verify(scheduleJobService).createJobContextNow(job);
     }
 }

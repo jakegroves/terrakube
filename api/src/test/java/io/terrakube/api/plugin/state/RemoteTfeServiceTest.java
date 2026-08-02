@@ -24,6 +24,7 @@ import io.terrakube.api.repository.WorkspaceRepository;
 import io.terrakube.api.repository.WorkspaceTagRepository;
 import io.terrakube.api.rs.ExecutionMode;
 import io.terrakube.api.rs.Organization;
+import io.terrakube.api.rs.job.JobStatusTransitionService;
 import io.terrakube.api.rs.tag.Tag;
 import io.terrakube.api.rs.team.Team;
 import io.terrakube.api.rs.workspace.Workspace;
@@ -75,6 +76,7 @@ class RemoteTfeServiceTest {
     private final VariableRepository variableRepository = Mockito.mock(VariableRepository.class);
     private final GlobalVarRepository globalVarRepository = Mockito.mock(GlobalVarRepository.class);
     private final RbacService rbacService = Mockito.mock(RbacService.class);
+    private final JobStatusTransitionService jobStatusTransitionService = Mockito.mock(JobStatusTransitionService.class);
 
     @Test
     void listWorkspaceWithSearchNameUsesLoadedWorkspaceEntities() {
@@ -165,7 +167,7 @@ class RemoteTfeServiceTest {
                 historyRepository, templateRepository, scheduleJobService, "localhost", storageTypeService,
                 stepRepository, redisTemplate, 1, tagRepository, workspaceTagRepository, teamTokenService,
                 archiveRepository, accessRepository, encryptionService, addressRepository, projectRepository,
-                variableRepository, globalVarRepository, rbacService);
+                variableRepository, globalVarRepository, rbacService, jobStatusTransitionService);
     }
 
     private JwtAuthenticationToken currentUser() {

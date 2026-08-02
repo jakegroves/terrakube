@@ -20,6 +20,7 @@ import io.terrakube.api.repository.*;
 import io.terrakube.api.rs.globalvar.Globalvar;
 import io.terrakube.api.rs.job.Job;
 import io.terrakube.api.rs.job.JobStatus;
+import io.terrakube.api.rs.job.JobStatusTransitionService;
 import io.terrakube.api.rs.job.JobVia;
 import io.terrakube.api.rs.job.step.Step;
 import io.terrakube.api.rs.template.Template;
@@ -93,6 +94,7 @@ public class ScheduleJob implements org.quartz.Job {
     VariableRepository variableRepository;
     WorkspaceVariableValidationService workspaceVariableValidationService;
     PersistentExecutorQueueService persistentExecutorQueueService;
+    JobStatusTransitionService jobStatusTransitionService;
 
 
     @Transactional
@@ -117,6 +119,7 @@ public class ScheduleJob implements org.quartz.Job {
             log.error("Job has been running for more than 6 hours, cancelling running job");
             try {
                 job.setStatus(JobStatus.failed);
+                jobStatusTransitionService.applyBookkeeping(job);
                 jobRepository.save(job);
                 log.warn("Deleting Job Context {} from Quartz", PREFIX_JOB_CONTEXT + job.getId());
                 updateJobStepsWithStatus(job.getId(), JobStatus.failed);
@@ -298,6 +301,7 @@ public class ScheduleJob implements org.quartz.Job {
                     try {
                         executorService.execute(job, stepId, flow.get());
                         job.setStatus(JobStatus.queue);
+                        jobStatusTransitionService.applyBookkeeping(job);
                         jobRepository.save(job);
                     } catch (ExecutorUnavailableException e) {
                         log.warn("No executor available for Job {} Step {}, will retry: {}", job.getId(), stepId, e.getMessage());
@@ -312,6 +316,7 @@ public class ScheduleJob implements org.quartz.Job {
                     if (!job.isAutoApply()) {
                         job.setStatus(JobStatus.waitingApproval);
                         job.setApprovalTeam(flow.get().getTeam());
+                        jobStatusTransitionService.applyBookkeeping(job);
                         jobRepository.save(job);
                         log.info("Waiting Approval for Job {} Step Id {}", job.getId(), stepId);
                     } else {
@@ -322,6 +327,7 @@ public class ScheduleJob implements org.quartz.Job {
                 case disableWorkspace:
                     log.warn("Disable workspace {} updating status to COMPLETED", job.getId());
                     job.setStatus(JobStatus.completed);
+                    jobStatusTransitionService.applyBookkeeping(job);
                     jobRepository.save(job);
                     log.warn("Disable workspace scheduler for {} {}", job.getWorkspace().getId(), job.getWorkspace().getName());
                     softDeleteService.disableWorkspaceSchedules(job.getWorkspace());
@@ -343,15 +349,18 @@ public class ScheduleJob implements org.quartz.Job {
 
                         log.info("Updating Job {} to pending to continue execution", stepId);
                         job.setStatus(JobStatus.pending);
+                        jobStatusTransitionService.applyBookkeeping(job);
                         jobRepository.save(job);
                     } else {
                         job.setStatus(JobStatus.failed);
+                        jobStatusTransitionService.applyBookkeeping(job);
                         jobRepository.save(job);
                     }
                     break;
                 case yamlError:
                     log.error("Terrakube Template error, please verify the template definition");
                     job.setStatus(JobStatus.failed);
+                    jobStatusTransitionService.applyBookkeeping(job);
                     jobRepository.save(job);
                     updateJobStepsWithStatus(job.getId(), JobStatus.failed);
                     updateJobStatusOnVcs(job, JobStatus.unknown);
@@ -403,6 +412,7 @@ public class ScheduleJob implements org.quartz.Job {
 
     private void completeJob(Job job) {
         job.setStatus(JobStatus.completed);
+        jobStatusTransitionService.applyBookkeeping(job);
         jobRepository.save(job);
         updateJobStatusOnVcs(job, JobStatus.completed);
         postPrCommentIfNeeded(job);
@@ -441,6 +451,7 @@ public class ScheduleJob implements org.quartz.Job {
         );
         log.error(logMessage, e);
         job.setStatus(JobStatus.failed);
+        jobStatusTransitionService.applyBookkeeping(job);
         jobRepository.save(job);
         Step step = stepRepository.getReferenceById(UUID.fromString(stepId));
         String message = String.format("Error sending to executor: %s", e.getMessage())
@@ -489,6 +500,7 @@ public class ScheduleJob implements org.quartz.Job {
             try {
                 executorService.execute(job, stepId, flow.get());
                 job.setStatus(JobStatus.queue);
+                jobStatusTransitionService.applyBookkeeping(job);
                 jobRepository.save(job);
             } catch (ExecutorUnavailableException e) {
                 log.warn("No executor available for Job {} Step {}, will retry: {}", job.getId(), stepId, e.getMessage());
@@ -521,6 +533,7 @@ public class ScheduleJob implements org.quartz.Job {
             log.warn("Failing job {} because of incomplete variables", job.getId(), exception);
             job.setStatus(JobStatus.failed);
             job.setOutput(failureMessage);
+            jobStatusTransitionService.applyBookkeeping(job);
             jobRepository.save(job);
 
             try {

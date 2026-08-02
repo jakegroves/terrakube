@@ -4,13 +4,15 @@ import com.yahoo.elide.annotation.LifeCycleHookBinding;
 import com.yahoo.elide.core.lifecycle.LifeCycleHook;
 import com.yahoo.elide.core.security.ChangeSpec;
 import com.yahoo.elide.core.security.RequestScope;
+import io.terrakube.api.repository.JobRepository;
 import io.terrakube.api.repository.WorkspaceRepository;
 import lombok.AllArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import io.terrakube.api.plugin.scheduler.ScheduleJobService;
-import io.terrakube.api.plugin.scheduler.job.tcl.executor.persistent.PersistentExecutorQueueService;
+import io.terrakube.api.plugin.scheduler.job.tcl.TclService;
 import io.terrakube.api.rs.job.Job;
 import io.terrakube.api.rs.job.JobStatus;
+import io.terrakube.api.rs.job.JobStatusTransitionService;
 import org.quartz.SchedulerException;
 
 import java.text.ParseException;
@@ -23,7 +25,9 @@ public class JobManageHook implements LifeCycleHook<Job> {
 
     private ScheduleJobService scheduleJobService;
     private WorkspaceRepository workspaceRepository;
-    private PersistentExecutorQueueService persistentExecutorQueueService;
+    private JobRepository jobRepository;
+    private TclService tclService;
+    private JobStatusTransitionService jobStatusTransitionService;
 
     @Override
     public void execute(LifeCycleHookBinding.Operation operation, LifeCycleHookBinding.TransactionPhase transactionPhase, Job job, RequestScope requestScope, Optional<ChangeSpec> optional) {
@@ -32,11 +36,15 @@ public class JobManageHook implements LifeCycleHook<Job> {
             switch (operation){
                 case CREATE:
                     updateWorkspaceStatus(job);
+                    job.setPlanOnly(tclService.isTemplatePlanOnly(job.getTemplateReference()));
+                    jobStatusTransitionService.applyBookkeeping(job);
+                    jobRepository.save(job);
                     scheduleJobService.createJobContext(job);
                     break;
                 case UPDATE:
                     updateWorkspaceStatus(job);
-                    persistentExecutorQueueService.releaseSlot(job);
+                    jobStatusTransitionService.applyBookkeeping(job);
+                    jobRepository.save(job);
                     if(job.getStatus().equals(JobStatus.cancelled)) {
                         scheduleJobService.deleteJobContext(job.getId());
                     } else {

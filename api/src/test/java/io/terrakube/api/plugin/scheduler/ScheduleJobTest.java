@@ -56,6 +56,7 @@ import io.terrakube.api.rs.Organization;
 import io.terrakube.api.rs.globalvar.Globalvar;
 import io.terrakube.api.rs.job.Job;
 import io.terrakube.api.rs.job.JobStatus;
+import io.terrakube.api.rs.job.JobStatusTransitionService;
 import io.terrakube.api.rs.job.step.Step;
 import io.terrakube.api.rs.template.Template;
 import io.terrakube.api.rs.vcs.Vcs;
@@ -90,6 +91,7 @@ public class ScheduleJobTest {
     RedisTemplate<String, Object> redisTemplate;
     ValueOperations<String, Object> valueOperations;
     PersistentExecutorQueueService persistentExecutorQueueService;
+    JobStatusTransitionService jobStatusTransitionService;
 
     UUID stepId = UUID.randomUUID();
 
@@ -122,6 +124,9 @@ public class ScheduleJobTest {
 
         persistentExecutorQueueService = mock(PersistentExecutorQueueService.class, new FailUnkownMethod<PersistentExecutorQueueService>());
         lenient().doReturn(false).when(persistentExecutorQueueService).isRegistered(any());
+
+        jobStatusTransitionService = mock(JobStatusTransitionService.class, new FailUnkownMethod<JobStatusTransitionService>());
+        lenient().doNothing().when(jobStatusTransitionService).applyBookkeeping(any());
     }
 
     private ScheduleJob subject() {
@@ -143,7 +148,8 @@ public class ScheduleJobTest {
                 globalVarRepository,
                 variableRepository,
                 workspaceVariableValidationService,
-                persistentExecutorQueueService);
+                persistentExecutorQueueService,
+                jobStatusTransitionService);
     }
 
     private Job job(JobStatus status) {

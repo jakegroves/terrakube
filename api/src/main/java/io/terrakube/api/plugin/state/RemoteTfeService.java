@@ -43,6 +43,7 @@ import io.terrakube.api.rs.Organization;
 import io.terrakube.api.rs.globalvar.Globalvar;
 import io.terrakube.api.rs.job.Job;
 import io.terrakube.api.rs.job.JobStatus;
+import io.terrakube.api.rs.job.JobStatusTransitionService;
 import io.terrakube.api.rs.job.address.Address;
 import io.terrakube.api.rs.job.address.AddressType;
 import io.terrakube.api.rs.job.step.Step;
@@ -113,6 +114,8 @@ public class RemoteTfeService {
 
     private RbacService rbacService;
 
+    private JobStatusTransitionService jobStatusTransitionService;
+
     public RemoteTfeService(JobRepository jobRepository,
                             ContentRepository contentRepository,
                             OrganizationRepository organizationRepository,
@@ -130,7 +133,7 @@ public class RemoteTfeService {
                             TeamTokenService teamTokenService,
                             ArchiveRepository archiveRepository,
                             AccessRepository accessRepository,
-                            EncryptionService encryptionService, AddressRepository addressRepository, ProjectRepository projectRepository, VariableRepository variableRepository, GlobalVarRepository globalVarRepository, RbacService rbacService) {
+                            EncryptionService encryptionService, AddressRepository addressRepository, ProjectRepository projectRepository, VariableRepository variableRepository, GlobalVarRepository globalVarRepository, RbacService rbacService, JobStatusTransitionService jobStatusTransitionService) {
         this.jobRepository = jobRepository;
         this.contentRepository = contentRepository;
         this.organizationRepository = organizationRepository;
@@ -154,6 +157,7 @@ public class RemoteTfeService {
         this.variableRepository = variableRepository;
         this.globalVarRepository = globalVarRepository;
         this.rbacService = rbacService;
+        this.jobStatusTransitionService = jobStatusTransitionService;
     }
 
     private boolean validateTerrakubeUser(JwtAuthenticationToken currentUser) {
@@ -1474,6 +1478,7 @@ public class RemoteTfeService {
                         "User does not have permission to discard runs in this workspace");
             }
             job.setStatus(JobStatus.cancelled);
+            jobStatusTransitionService.applyBookkeeping(job);
             jobRepository.save(job);
             scheduleJobService.deleteJobContext(job.getId());
         } catch (ParseException | SchedulerException e) {
