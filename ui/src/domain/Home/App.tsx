@@ -37,6 +37,9 @@ const OrganizationsPickerPage = lazy(() => import("@/modules/organizations/Organ
 const OrganizationsDetailPage = lazy(() => import("@/modules/organizations/OrganizationDetailsPage"));
 const ProjectsPage = lazy(() => import("@/modules/projects/ProjectsPage"));
 const ProjectDetailPage = lazy(() => import("@/modules/projects/ProjectDetailPage"));
+const OrganizationMetrics = lazy(() =>
+  import("../Metrics/OrganizationMetrics").then((module) => ({ default: module.OrganizationMetrics }))
+);
 
 // Workspaces
 const CreateWorkspace = lazy(() =>
@@ -204,7 +207,7 @@ const AppLayout = () => {
     // Deeper sub-paths (a specific workspace, run, etc.) are dropped since
     // those resource ids belong to the old organization and won't resolve
     // under the new one.
-    const knownSections = ["workspaces", "registry", "settings", "projects"];
+    const knownSections = ["workspaces", "registry", "settings", "projects", "metrics"];
     const paths = location.pathname.split("/").filter(Boolean);
     const orgIdx = paths.indexOf("organizations");
     const section = orgIdx >= 0 ? paths[orgIdx + 2] : undefined;
@@ -283,6 +286,10 @@ const App = () => {
           {
             path: "/organizations/:orgid/projects/:id",
             element: <OrganizationsProjectDetailRoute />,
+          },
+          {
+            path: "/organizations/:orgid/metrics",
+            element: <OrganizationMetrics />,
           },
           {
             path: "/workspaces/create",

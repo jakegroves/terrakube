@@ -245,13 +245,11 @@
             <groupId>com.github.jknack</groupId>
             <artifactId>handlebars-helpers</artifactId>
             <version>${handlebars.version}</version>
-            <scope>test</scope>
         </dependency>
         <dependency>
             <groupId>com.github.jknack</groupId>
             <artifactId>handlebars</artifactId>
             <version>${handlebars.version}</version>
-            <scope>test</scope>
         </dependency>
         <dependency>
             <groupId>com.azure</groupId>

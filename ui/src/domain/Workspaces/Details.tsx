@@ -35,6 +35,7 @@ import {
   Flex,
   Select,
   Input,
+  Statistic,
   theme,
 } from "antd";
 
@@ -73,6 +74,9 @@ import { getIaCIconById, getIaCNameById, renderVCSLogo } from "./Workspaces";
 import "./Workspaces.css";
 import LoadingFallback from "@/components/LoadingFallback";
 import RunList from "@/modules/workspaces/components/RunList";
+import { Column } from "@ant-design/plots";
+import metricsService from "@/modules/metrics/metricsService";
+import { MetricsTimeRangeSelect } from "@/modules/metrics/components/MetricsTimeRangeSelect";
 
 import { setupWorkspaceIncludes, isValidUrl, fixSshURL, StateOutputVariableWithName } from "./workspaceDataUtils";
 const DetailsJob = lazy(() => import("../Jobs/Details").then((m) => ({ default: m.DetailsJob })));
@@ -146,6 +150,13 @@ export const WorkspaceDetails = ({
   const [resource, setResource] = useState<Resource>();
   const [envVariables, setEnvVariables] = useState<FlatVariable[]>([]);
   const [jobs, setJobs] = useState<FlatJob[]>([]);
+  const [runsActivityRangeDays, setRunsActivityRangeDays] = useState<7 | 30 | 90>(7);
+  const [runsActivity, setRunsActivity] = useState<{ day: string; runCount: number }[]>([]);
+  const [runsDigest, setRunsDigest] = useState<{ total: number; successful: number; failed: number }>({
+    total: 0,
+    successful: 0,
+    failed: 0,
+  });
   const [stateDetailsVisible, setStateDetailsVisible] = useState(false);
   const [jobId, setJobId] = useState<string>();
   const [loading, setLoading] = useState(false);
@@ -355,6 +366,43 @@ export const WorkspaceDetails = ({
       setJobVisible(false);
     }
   }, [runid]);
+
+  useEffect(() => {
+    if (!organizationId || !id) {
+      return;
+    }
+    const to = DateTime.utc().toISODate();
+    const from = DateTime.utc().minus({ days: runsActivityRangeDays }).toISODate();
+    Promise.all([
+      metricsService.queryJobMetrics({
+        organizationId,
+        workspaceId: id,
+        from: from!,
+        to: to!,
+        dimensions: ["day"],
+        metrics: ["runCount"],
+      }),
+      metricsService.queryJobMetrics({
+        organizationId,
+        workspaceId: id,
+        from: from!,
+        to: to!,
+        dimensions: ["status"],
+        metrics: ["runCount"],
+      }),
+    ]).then(([dailyRows, statusRows]) => {
+      setRunsActivity(dailyRows.map((row) => ({ day: String(row.day ?? ""), runCount: Number(row.runCount ?? 0) })));
+
+      const total = statusRows.reduce((sum, row) => sum + Number(row.runCount ?? 0), 0);
+      const successful = statusRows
+        .filter((row) => row.status === "completed" || row.status === "noChanges")
+        .reduce((sum, row) => sum + Number(row.runCount ?? 0), 0);
+      const failed = statusRows
+        .filter((row) => row.status === "failed")
+        .reduce((sum, row) => sum + Number(row.runCount ?? 0), 0);
+      setRunsDigest({ total, successful, failed });
+    });
+  }, [organizationId, id, runsActivityRangeDays]);
 
   // Polling for workspace updates
   usePolling(
@@ -643,6 +691,31 @@ export const WorkspaceDetails = ({
                       },
                     ]}
                   />
+
+                  <Card
+                    title="Runs activity"
+                    style={{ marginTop: "30px" }}
+                    extra={
+                      <MetricsTimeRangeSelect
+                        value={runsActivityRangeDays}
+                        onChange={setRunsActivityRangeDays}
+                        options={[7, 30]}
+                      />
+                    }
+                  >
+                    <Column data={runsActivity} xField="day" yField="runCount" />
+                    <Row gutter={16} style={{ marginTop: 16 }}>
+                      <Col span={8}>
+                        <Statistic title="Total runs" value={runsDigest.total} />
+                      </Col>
+                      <Col span={8}>
+                        <Statistic title="Successful" value={runsDigest.successful} />
+                      </Col>
+                      <Col span={8}>
+                        <Statistic title="Failed" value={runsDigest.failed} />
+                      </Col>
+                    </Row>
+                  </Card>
 
                   <ResourceDrawer resource={resource} workspace={workspace} setOpen={setOpen} open={open} />
                 </div>

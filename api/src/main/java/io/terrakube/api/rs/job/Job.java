@@ -1,6 +1,7 @@
 package io.terrakube.api.rs.job;
 
 import java.time.Instant;
+import java.util.Date;
 import java.util.List;
 
 import io.terrakube.api.plugin.security.audit.GenericAuditFields;
@@ -29,6 +30,8 @@ import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
 import jakarta.persistence.ManyToOne;
 import jakarta.persistence.OneToMany;
+import jakarta.persistence.Temporal;
+import jakarta.persistence.TemporalType;
 import lombok.Getter;
 import lombok.Setter;
 
@@ -141,6 +144,29 @@ public class Job extends GenericAuditFields {
     @Exclude
     @Column(name = "persistent_slot_acquired_at")
     private Instant persistentSlotAcquiredAt;
+
+    @Temporal(TemporalType.TIMESTAMP)
+    @Column(name = "queued_at")
+    private Date queuedAt;
+
+    @Temporal(TemporalType.TIMESTAMP)
+    @Column(name = "waiting_approval_at")
+    private Date waitingApprovalAt;
+
+    @Temporal(TemporalType.TIMESTAMP)
+    @Column(name = "approved_at")
+    private Date approvedAt;
+
+    @Temporal(TemporalType.TIMESTAMP)
+    @Column(name = "started_at")
+    private Date startedAt;
+
+    @Temporal(TemporalType.TIMESTAMP)
+    @Column(name = "finished_at")
+    private Date finishedAt;
+
+    @Column(name = "plan_only")
+    private boolean planOnly = false;
 
 }
 

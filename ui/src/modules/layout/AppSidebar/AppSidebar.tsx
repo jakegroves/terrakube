@@ -16,6 +16,7 @@ import {
   HistoryOutlined,
   KeyOutlined,
   LeftOutlined,
+  LineChartOutlined,
   LockOutlined,
   ProjectOutlined,
   RobotOutlined,
@@ -141,6 +142,8 @@ export default function AppSidebar({
       setDefaultSelected([params[5] || "overview"]);
     } else if (location.pathname.includes("registry")) {
       setDefaultSelected(["registry"]);
+    } else if (location.pathname.includes("metrics")) {
+      setDefaultSelected(["metrics"]);
     } else if (location.pathname.includes("projects")) {
       setDefaultSelected(["projects"]);
     } else if (orgIdFromUrl) {
@@ -387,6 +390,12 @@ export default function AppSidebar({
                   key: "workspaces",
                   icon: <AppstoreOutlined />,
                   onClick: () => handleSectionNavigation("workspaces"),
+                },
+                {
+                  label: "Metrics",
+                  key: "metrics",
+                  icon: <LineChartOutlined />,
+                  onClick: () => handleSectionNavigation("metrics"),
                 },
                 {
                   label: "Registry",

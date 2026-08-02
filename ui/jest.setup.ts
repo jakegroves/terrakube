@@ -6,6 +6,11 @@ import "@testing-library/jest-dom";
 import { TextEncoder, TextDecoder } from "node:util";
 import { MessageChannel } from "node:worker_threads";
 
+// jsdom doesn't implement canvas 2D rendering, but @ant-design/plots (G2/antv) charts
+// call canvas.getContext('2d') during render to draw. jest-canvas-mock provides a
+// complete no-op canvas API so chart components can mount without crashing.
+import "jest-canvas-mock";
+
 // In the real app, window._env_ is injected by env-config.js at runtime. Several
 // modules (apiWrapper.ts, axiosConfig.ts) read it at import time, so it must exist
 // before those modules are ever required, even under a full jest.mock() auto-mock

@@ -128,6 +128,24 @@ public class PersistentExecutorQueueService {
         }
     }
 
+    /**
+     * Live pool occupancy for the "executor pool" metrics panel — busy is the
+     * current active-slots set size, poolSize is the fixed replica config.
+     */
+    public ExecutorPoolStatus getPoolStatus() {
+        long busy = 0;
+        try {
+            Long size = redisTemplate.opsForSet().size(ACTIVE_SLOTS_KEY);
+            busy = size == null ? 0 : size;
+        } catch (RuntimeException e) {
+            log.warn("Could not read persistent executor slot count from Redis: {}", e.getMessage());
+        }
+        return new ExecutorPoolStatus(busy, executorReplicas);
+    }
+
+    public record ExecutorPoolStatus(long busy, int poolSize) {
+    }
+
     private void wakeNextInQueue() {
         try {
             Set<Object> head = redisTemplate.opsForZSet().range(WAIT_QUEUE_KEY, 0, 0);
