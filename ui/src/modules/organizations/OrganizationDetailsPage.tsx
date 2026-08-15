@@ -2,13 +2,14 @@ import { Button, Flex, List, Space } from "antd";
 import PageWrapper from "@/modules/layout/PageWrapper/PageWrapper";
 import { ImportOutlined, PlusOutlined } from "@ant-design/icons";
 import { useEffect, useMemo, useState } from "react";
+import { useQuery } from "@tanstack/react-query";
 import WorkspaceFilter from "@/modules/workspaces/components/WorkspaceFilter";
-import { WorkspaceListItem } from "@/modules/workspaces/types";
+import { ListWorkspacesResponse, WorkspaceListItem } from "@/modules/workspaces/types";
 import { JobStatus } from "@/domain/types";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import workspaceService from "@/modules/workspaces/workspaceService";
-import useApiRequest from "@/modules/api/useApiRequest";
-import { useOrganizationJobStatusSubscription, usePolling } from "@/hooks";
+import { ErrorInformation } from "@/modules/api/types";
+import { useOrganizationJobStatusSubscription } from "@/hooks";
 import { ORGANIZATION_ARCHIVE, ORGANIZATION_NAME } from "../../config/actionTypes";
 import { TagModel } from "./types";
 import WorkspaceCard from "@/modules/workspaces/components/WorkspaceCard";
@@ -29,14 +30,70 @@ type Props = {
   setOrganizationName: React.Dispatch<React.SetStateAction<string>>;
 };
 
+class WorkspacesRequestError extends Error {
+  info: ErrorInformation;
+  constructor(info: ErrorInformation) {
+    super(info.message ?? info.title);
+    this.info = info;
+  }
+}
+
 export default function OrganizationsDetailPage({ organizationName, setOrganizationName }: Props) {
   const { id } = useParams();
   const navigate = useNavigate();
-  const [workspaces, setWorkspaces] = useState<WorkspaceListItem[]>([]);
   const [sortOption, setSortOption] = useState<WorkspaceSortOption>(() => getStoredWorkspaceSortOption());
   const [tags, setTags] = useState<TagModel[]>([]);
   const [listViewMode, setListViewMode] = useState<ListViewMode>(() => getStoredListViewMode());
   const filterState = useWorkspaceFilterState();
+
+  useEffect(() => {
+    if (id) sessionStorage.setItem(ORGANIZATION_ARCHIVE, id);
+  }, [id]);
+
+  // refetchInterval silently refreshes workspace status in the background so job status/icon
+  // changes (e.g. running -> completed) show up without a manual reload. isLoading (rather than
+  // isFetching) only reflects the initial load, so background polls don't toggle the page spinner.
+  const {
+    data,
+    isLoading: loading,
+    error: queryError,
+    refetch,
+  } = useQuery<ListWorkspacesResponse, WorkspacesRequestError>({
+    queryKey: ["workspaces", id],
+    queryFn: async () => {
+      const response = await workspaceService.listWorkspaces(id!);
+      if (response.isError || !response.data) {
+        throw new WorkspacesRequestError({
+          title: response.error?.status || "Operation failed",
+          message: response.error?.message || "Failed due to an unknown error",
+        });
+      }
+      return response.data;
+    },
+    enabled: Boolean(id),
+    refetchInterval: 10000,
+    refetchIntervalInBackground: false,
+  });
+
+  const error = queryError?.info;
+  const workspaces = useMemo(() => data?.workspaces ?? [], [data]);
+
+  useEffect(() => {
+    if (data) {
+      sessionStorage.setItem(ORGANIZATION_NAME, data.organizationName);
+      setOrganizationName(data.organizationName);
+    }
+  }, [data, setOrganizationName]);
+
+  // Pushes an immediate refresh on real job status changes anywhere in this organization; the poll
+  // above stays as a fallback for a dropped WebSocket connection.
+  useOrganizationJobStatusSubscription({
+    organizationId: id ?? "",
+    enabled: Boolean(id),
+    onEvent: () => {
+      refetch();
+    },
+  });
 
   const filteredWorkspaces = useMemo(
     () =>
@@ -98,50 +155,6 @@ export default function OrganizationsDetailPage({ organizationName, setOrganizat
     setSortOption(option);
     setStoredWorkspaceSortOption(option);
   };
-
-  const { loading, execute, error } = useApiRequest({
-    action: () => workspaceService.listWorkspaces(id!),
-    onReturn: (data) => {
-      setWorkspaces(data.workspaces);
-      sessionStorage.setItem(ORGANIZATION_NAME, data.organizationName);
-      setOrganizationName(data.organizationName);
-    },
-  });
-
-  useEffect(() => {
-    sessionStorage.setItem(ORGANIZATION_ARCHIVE, id!);
-    execute();
-  }, [id]);
-
-  // Silently refresh workspace status in the background so job status/icon changes
-  // (e.g. running -> completed) show up without a manual reload. Bypasses useApiRequest
-  // so it doesn't toggle the page-level loading spinner on every poll.
-  usePolling(
-    () => {
-      if (!id) return;
-      workspaceService.listWorkspaces(id).then((response) => {
-        if (!response.isError && response.data) {
-          setWorkspaces(response.data.workspaces);
-        }
-      });
-    },
-    { interval: 10000, enabled: Boolean(id), immediate: false }
-  );
-
-  // Pushes an immediate refresh on real job status changes anywhere in this organization; the poll
-  // above stays as a fallback for a dropped WebSocket connection.
-  useOrganizationJobStatusSubscription({
-    organizationId: id ?? "",
-    enabled: Boolean(id),
-    onEvent: () => {
-      if (!id) return;
-      workspaceService.listWorkspaces(id).then((response) => {
-        if (!response.isError && response.data) {
-          setWorkspaces(response.data.workspaces);
-        }
-      });
-    },
-  });
 
   const handleCreateWorkspace = () => {
     navigate("/workspaces/create");

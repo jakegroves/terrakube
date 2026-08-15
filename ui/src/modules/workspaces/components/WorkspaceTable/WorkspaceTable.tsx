@@ -8,6 +8,13 @@ import {
 } from "@ant-design/icons";
 import { DateTime } from "luxon";
 import { useEffect, useMemo, useState, type KeyboardEvent } from "react";
+import {
+  useReactTable,
+  getCoreRowModel,
+  getPaginationRowModel,
+  type ColumnDef,
+  type PaginationState,
+} from "@tanstack/react-table";
 import { useNavigate } from "react-router-dom";
 import { WorkspaceListItem } from "@/modules/workspaces/types";
 import WorkspaceStatusTag from "@/modules/workspaces/components/WorkspaceStatusTag";
@@ -185,19 +192,26 @@ export default function WorkspaceTable({
   sortOption,
   onSortChange,
 }: Props) {
-  const [page, setPage] = useState(1);
-  const [pageSize, setPageSize] = useState(20);
+  const [pagination, setPagination] = useState<PaginationState>({ pageIndex: 0, pageSize: 20 });
   const [expandedGroups, setExpandedGroups] = useState<Set<string>>(new Set());
   const isGrouped = !!groups;
 
   useEffect(() => {
-    setPage(1);
+    setPagination((prev) => ({ ...prev, pageIndex: 0 }));
   }, [workspaces]);
 
-  const pagedWorkspaces = useMemo(() => {
-    const start = (page - 1) * pageSize;
-    return workspaces.slice(start, start + pageSize);
-  }, [workspaces, page, pageSize]);
+  const columns = useMemo<ColumnDef<WorkspaceListItem>[]>(() => [{ accessorKey: "id" }], []);
+
+  const table = useReactTable({
+    data: workspaces,
+    columns,
+    state: { pagination },
+    onPaginationChange: setPagination,
+    getCoreRowModel: getCoreRowModel(),
+    getPaginationRowModel: getPaginationRowModel(),
+  });
+
+  const pagedWorkspaces = table.getRowModel().rows.map((row) => row.original);
 
   const toggleGroupExpanded = (key: string) => {
     setExpandedGroups((prev) => {
@@ -298,13 +312,12 @@ export default function WorkspaceTable({
       {!isGrouped && (
         <div className="workspace-list-pagination">
           <Pagination
-            current={page}
-            pageSize={pageSize}
+            current={pagination.pageIndex + 1}
+            pageSize={pagination.pageSize}
             total={workspaces.length}
             showSizeChanger
             onChange={(newPage, newPageSize) => {
-              setPage(newPage);
-              setPageSize(newPageSize);
+              setPagination({ pageIndex: newPage - 1, pageSize: newPageSize });
             }}
           />
         </div>

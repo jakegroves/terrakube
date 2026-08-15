@@ -4,8 +4,11 @@ import "./styles/global.css";
 import React from "react";
 import { createRoot } from "react-dom/client";
 import { AuthProvider } from "react-oidc-context";
+import { QueryClientProvider } from "@tanstack/react-query";
+import { ReactQueryDevtools } from "@tanstack/react-query-devtools";
 import { mgr } from "./config/authConfig";
 import { getUiRedirectUri } from "./config/basePath";
+import { queryClient } from "./config/queryClient";
 import App from "./domain/Home/App";
 import "./index.css";
 import reportWebVitals from "./reportWebVitals";
@@ -27,9 +30,12 @@ const onSigninCallback = (): void => {
 // Shares the UserManager with axiosConfig/apiWrapper so removeUser() there updates this provider immediately.
 root.render(
   <React.StrictMode>
-    <AuthProvider userManager={mgr} onSigninCallback={onSigninCallback}>
-      <App />
-    </AuthProvider>
+    <QueryClientProvider client={queryClient}>
+      <AuthProvider userManager={mgr} onSigninCallback={onSigninCallback}>
+        <App />
+      </AuthProvider>
+      {import.meta.env.DEV && <ReactQueryDevtools initialIsOpen={false} />}
+    </QueryClientProvider>
   </React.StrictMode>
 );
 
