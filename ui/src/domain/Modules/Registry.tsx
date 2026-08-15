@@ -6,7 +6,8 @@ import {
   AppstoreOutlined,
   CloudServerOutlined,
 } from "@ant-design/icons";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
+import { useQuery } from "@tanstack/react-query";
 import { useNavigate, useParams, useSearchParams } from "react-router-dom";
 import PageWrapper from "@/modules/layout/PageWrapper/PageWrapper";
 import { ModuleList } from "./ModuleList";
@@ -89,94 +90,57 @@ export const Registry = ({ setOrganizationName, organizationName }: Props) => {
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
   const [searchFilter, setSearchFilter] = useState("");
-  const [modules, setModules] = useState<FlatModule[]>([]);
-  const [providers, setProviders] = useState<FlatProvider[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<ErrorInformation | undefined>(undefined);
   const [listViewMode, setListViewMode] = useState<ListViewMode>(() => getStoredListViewMode());
-
-  // Track which data has been loaded to avoid re-fetching
-  const modulesLoaded = useRef(false);
-  const providersLoaded = useRef(false);
 
   const activeTab = searchParams.get("tab") || "modules";
 
-  const loadModules = useCallback(async () => {
-    if (!orgid || modulesLoaded.current) return;
-    try {
-      const data = await fetchModules(orgid);
-      setModules(data);
-      modulesLoaded.current = true;
-    } catch (err) {
-      console.error("Failed to load modules:", err);
-      setError({ title: "Failed to load modules" });
-    }
-  }, [orgid]);
+  // Each tab's data is fetched (and cached) the first time it's visited, so switching
+  // tabs afterward doesn't refetch. visitedTabs replaces the old modulesLoaded/providersLoaded refs.
+  const [visitedTabs, setVisitedTabs] = useState<Set<string>>(() => new Set([activeTab]));
 
-  const loadProviders = useCallback(async () => {
-    if (!orgid || providersLoaded.current) return;
-    try {
-      const data = await fetchProviders(orgid);
-      setProviders(data);
-      providersLoaded.current = true;
-    } catch (err) {
-      console.error("Failed to load providers:", err);
-      setError({ title: "Failed to load providers" });
-    }
-  }, [orgid]);
-
-  // On mount: fetch org name + data for the active tab in parallel
   useEffect(() => {
-    if (!orgid) return;
-    sessionStorage.setItem(ORGANIZATION_ARCHIVE, orgid);
+    if (orgid) sessionStorage.setItem(ORGANIZATION_ARCHIVE, orgid);
+  }, [orgid]);
 
-    const init = async () => {
-      setLoading(true);
-      setError(undefined);
-      try {
-        // Fetch org name in parallel with the active tab's data
-        const promises: Promise<any>[] = [
-          fetchOrgName(orgid).then((name) => {
-            sessionStorage.setItem(ORGANIZATION_NAME, name);
-            setOrganizationName(name);
-          }),
-        ];
+  const orgNameQuery = useQuery({
+    queryKey: ["organizationName", orgid],
+    queryFn: () => fetchOrgName(orgid!),
+    enabled: Boolean(orgid),
+  });
 
-        if (activeTab === "providers") {
-          promises.push(
-            fetchProviders(orgid).then((data) => {
-              setProviders(data);
-              providersLoaded.current = true;
-            })
-          );
-        } else {
-          promises.push(
-            fetchModules(orgid).then((data) => {
-              setModules(data);
-              modulesLoaded.current = true;
-            })
-          );
-        }
+  useEffect(() => {
+    if (orgNameQuery.data) {
+      sessionStorage.setItem(ORGANIZATION_NAME, orgNameQuery.data);
+      setOrganizationName(orgNameQuery.data);
+    }
+  }, [orgNameQuery.data, setOrganizationName]);
 
-        await Promise.all(promises);
-      } catch (err) {
-        setError({ title: "Failed to load registry data" });
-      } finally {
-        setLoading(false);
-      }
-    };
+  const modulesQuery = useQuery({
+    queryKey: ["modules", orgid],
+    queryFn: () => fetchModules(orgid!),
+    enabled: Boolean(orgid) && visitedTabs.has("modules"),
+  });
 
-    init();
-  }, [orgid]); // eslint-disable-line react-hooks/exhaustive-deps
+  const providersQuery = useQuery({
+    queryKey: ["providers", orgid],
+    queryFn: () => fetchProviders(orgid!),
+    enabled: Boolean(orgid) && visitedTabs.has("providers"),
+  });
+
+  const modules = modulesQuery.data ?? [];
+  const providers = providersQuery.data ?? [];
+
+  const activeTabQuery = activeTab === "providers" ? providersQuery : modulesQuery;
+  const loading = orgNameQuery.isLoading || activeTabQuery.isLoading;
+  const error: ErrorInformation | undefined = orgNameQuery.isError
+    ? { title: "Failed to load registry data" }
+    : activeTabQuery.isError
+      ? { title: activeTab === "providers" ? "Failed to load providers" : "Failed to load modules" }
+      : undefined;
 
   const handleTabChange = (key: string) => {
     setSearchParams({ tab: key });
-    // Lazy load the other tab's data on first switch
-    if (key === "providers") {
-      loadProviders();
-    } else {
-      loadModules();
-    }
+    setVisitedTabs((prev) => (prev.has(key) ? prev : new Set(prev).add(key)));
   };
 
   const handleSearchPublicRegistry = () => {
