@@ -14,6 +14,13 @@ describe("IacTypeLogo", () => {
     expect(img).toHaveAttribute("alt", "opentofu-logo");
   });
 
+  it("renders the Terragrunt logo for type 'terragrunt'", () => {
+    const { container } = render(<IacTypeLogo type="terragrunt" />);
+    const img = container.querySelector("img");
+    expect(img).toBeInTheDocument();
+    expect(img).toHaveAttribute("alt", "terragrunt-logo");
+  });
+
   it("renders nothing for an unknown type", () => {
     const { container } = render(<IacTypeLogo type="unknown" />);
     expect(container).toBeEmptyDOMElement();

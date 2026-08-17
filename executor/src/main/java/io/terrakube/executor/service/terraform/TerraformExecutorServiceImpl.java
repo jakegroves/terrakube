@@ -43,7 +43,7 @@ import static io.terrakube.executor.service.workspace.SetupWorkspaceImpl.SSH_DIR
 import static io.terrakube.executor.service.workspace.SetupWorkspaceImpl.SSH_DIRECTORY_MODULE;
 
 @Slf4j
-@Service
+@Service("terraformExecutor")
 public class TerraformExecutorServiceImpl implements TerraformExecutor {
 
     private static final String STEP_SEPARATOR = "***************************************";

@@ -46,6 +46,26 @@ public class PlanStructuredOutputService {
     public void publishPlanSummary(TerraformJob terraformJob, File terraformWorkingDir, List<Map<String, Object>> liveChanges, List<Map<String, Object>> jobDiagnostics) {
         try {
             String planJson = getPlanAsJson(terraformJob, terraformWorkingDir);
+            publishPlanSummary(terraformJob, planJson, liveChanges, jobDiagnostics);
+        } catch (InterruptedException e) {
+            log.error("Interrupted while publishing plan summary", e);
+            Thread.currentThread().interrupt();
+        } catch (Exception e) {
+            log.warn("Unable to publish structured plan output for job {} step {}", terraformJob.getJobId(),
+                    terraformJob.getStepId(), e);
+        }
+    }
+
+    /**
+     * Same merge/save logic as {@link #publishPlanSummary(TerraformJob, File, List, List)}, but
+     * takes an already-rendered plan JSON string instead of deriving it from a plain `terraform
+     * show -json` call against terraformWorkingDir. Callers that drive a different tool (e.g. a
+     * Terragrunt-wrapped plan, which resolves its own cache directory and can't be re-shown by a
+     * plain terraform invocation against the checkout root) can render that JSON themselves and
+     * reuse this merge/save step unchanged.
+     */
+    public void publishPlanSummary(TerraformJob terraformJob, String planJson, List<Map<String, Object>> liveChanges, List<Map<String, Object>> jobDiagnostics) {
+        try {
             if (planJson == null || planJson.isBlank()) {
                 return;
             }
@@ -56,16 +76,13 @@ public class PlanStructuredOutputService {
             Map<String, Object> context = getCurrentContext(terraformJob.getOrganizationId(), terraformJob.getJobId());
             Map<String, Object> updatedContext = updateContext(context, terraformJob.getStepId(), changes, jobDiagnostics);
             saveContext(terraformJob.getOrganizationId(), terraformJob.getJobId(), updatedContext);
-        } catch (InterruptedException e) {
-            log.error("Interrupted while publishing plan summary", e);
-            Thread.currentThread().interrupt();
         } catch (Exception e) {
             log.warn("Unable to publish structured plan output for job {} step {}", terraformJob.getJobId(),
                     terraformJob.getStepId(), e);
         }
     }
 
-    void publishPlanProgress(String organizationId, String jobId, String stepId, List<Map<String, Object>> liveChanges, List<Map<String, Object>> jobDiagnostics) {
+    public void publishPlanProgress(String organizationId, String jobId, String stepId, List<Map<String, Object>> liveChanges, List<Map<String, Object>> jobDiagnostics) {
         try {
             Map<String, Object> context = getCurrentContext(organizationId, jobId);
             Map<String, Object> updatedContext = updateContext(context, stepId, liveChanges, jobDiagnostics);

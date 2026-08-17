@@ -29,6 +29,7 @@ type UpdateWorkspaceForm = {
   folder?: string;
   executionMode: string;
   terraformVersion: string;
+  terragruntVersion?: string;
   iacType: string;
   branch: string;
   defaultTemplate?: string;
@@ -41,14 +42,19 @@ export const WorkspaceGeneral = ({ workspaceData, orgTemplates, manageWorkspace,
   const id = workspaceData.id;
   const Option = Select;
   const [selectedIac, setSelectedIac] = useState("");
+  const currentIacType = selectedIac || workspaceData.attributes?.iacType;
   const { permissions: orgPermissions } = useOrgPermissions();
   const [terraformVersions, setTerraformVersions] = useState<string[]>([]);
   const [agentList, setAgentList] = useState<Agent[]>([]);
   const [projectList, setProjectList] = useState<ProjectModel[]>([]);
   const [waiting, setWaiting] = useState(false);
 
+  // Terragrunt drives a real Terraform binary underneath, so it reuses the /terraform version
+  // manifest - there is no /terragrunt endpoint.
+  const versionsEndpointIacType = (iacType: string) => (iacType === "tofu" ? "tofu" : "terraform");
+
   const loadVersions = (iacType: string) => {
-    const versionsApi = `${new URL(window._env_.REACT_APP_TERRAKUBE_API_URL).origin}/${iacType}/index.json`;
+    const versionsApi = `${new URL(window._env_.REACT_APP_TERRAKUBE_API_URL).origin}/${versionsEndpointIacType(iacType)}/index.json`;
     axiosInstance.get(versionsApi).then((resp) => {
       const tfVersions = [];
       if (iacType === "tofu") {
@@ -67,7 +73,7 @@ export const WorkspaceGeneral = ({ workspaceData, orgTemplates, manageWorkspace,
   useEffect(() => {
     setWaiting(true);
     const iacType = workspaceData.attributes?.iacType;
-    const versionsApi = `${new URL(window._env_.REACT_APP_TERRAKUBE_API_URL).origin}/${iacType}/index.json`;
+    const versionsApi = `${new URL(window._env_.REACT_APP_TERRAKUBE_API_URL).origin}/${versionsEndpointIacType(iacType)}/index.json`;
 
     // Parallel load: versions, agent list, and projects
     Promise.all([
@@ -112,6 +118,7 @@ export const WorkspaceGeneral = ({ workspaceData, orgTemplates, manageWorkspace,
               folder: values.folder,
               executionMode: values.executionMode,
               terraformVersion: values.terraformVersion,
+              terragruntVersion: values.iacType === "terragrunt" ? values.terragruntVersion : undefined,
               iacType: values.iacType,
               branch: values.branch,
               defaultTemplate: values.defaultTemplate,
@@ -195,6 +202,7 @@ export const WorkspaceGeneral = ({ workspaceData, orgTemplates, manageWorkspace,
             folder: workspaceData.attributes?.folder,
             executionMode: workspaceData.attributes?.executionMode,
             terraformVersion: workspaceData.attributes?.terraformVersion,
+            terragruntVersion: workspaceData.attributes?.terragruntVersion,
             iacType: workspaceData.attributes?.iacType,
             branch: workspaceData.attributes?.branch,
             defaultTemplate: workspaceData.attributes?.defaultTemplate,
@@ -236,7 +244,7 @@ export const WorkspaceGeneral = ({ workspaceData, orgTemplates, manageWorkspace,
               label="Execution Mode"
               extra={
                 "Local indicates users should run " +
-                getIaCNameById(selectedIac || workspaceData.attributes?.iacType) +
+                getIaCNameById(currentIacType) +
                 " " +
                 "locally with remote state/cloud block and just upload the state to Terrakube. Remote " +
                 "indicates Terrakube will run plans and apply. Informational only."
@@ -290,11 +298,14 @@ export const WorkspaceGeneral = ({ workspaceData, orgTemplates, manageWorkspace,
             </Form.Item>
             <Form.Item
               name="terraformVersion"
-              label={getIaCNameById(selectedIac || workspaceData.attributes?.iacType) + " Version"}
+              label={
+                (currentIacType === "terragrunt" ? "Terraform" : getIaCNameById(currentIacType)) + " Version"
+              }
               rules={[{ validator: validateTerraformVersion(terraformVersions) }]}
               extra={
                 "The version of " +
-                getIaCNameById(selectedIac || workspaceData.attributes?.iacType) +
+                (currentIacType === "terragrunt" ? "Terraform" : getIaCNameById(currentIacType)) +
+                (currentIacType === "terragrunt" ? " Terragrunt drives underneath" : "") +
                 " to use for this workspace. It will not upgrade automatically. Version constraints are also supported (e.g. ~>1.11.0, >=1.5.7 <1.9.0)."
               }
             >
@@ -305,12 +316,21 @@ export const WorkspaceGeneral = ({ workspaceData, orgTemplates, manageWorkspace,
                 placeholder="e.g. 1.11.0 or ~>1.11.0"
               />
             </Form.Item>
+            {currentIacType === "terragrunt" && (
+              <Form.Item
+                name="terragruntVersion"
+                label="Terragrunt Version"
+                extra="The Terragrunt CLI version to use for this workspace. Leave blank to use the default supported version."
+              >
+                <Input disabled={!manageWorkspace} placeholder="e.g. 0.67.16" />
+              </Form.Item>
+            )}
             <Form.Item
               name="folder"
-              label={getIaCNameById(selectedIac || workspaceData.attributes?.iacType) + " Working Directory"}
+              label={getIaCNameById(currentIacType) + " Working Directory"}
               extra={
                 "The directory that " +
-                getIaCNameById(selectedIac || workspaceData.attributes?.iacType) +
+                getIaCNameById(currentIacType) +
                 " will execute within. This defaults to the root of your repository and is typically set to a subdirectory matching the environment when multiple environments exist within the same repository."
               }
             >

@@ -39,6 +39,7 @@ public class LocalTerraformStateImpl implements TerraformState {
     private static final String BACKEND_FILE_NAME = "terrakube_override.tf";
     private static final String LOCAL_OUTPUT_DIRECTORY = "/.terraform-spring-boot/local/output/%s/%s/%s.tfoutput";
     private static final String LOCAL_BINARY_DIRECTORY = "/.terraform-spring-boot/local/binary/%s/%s/%s";
+    private static final String LOCAL_TERRAGRUNT_BINARY_DIRECTORY = "/.terraform-spring-boot/local/binary/terragrunt/%s/terragrunt";
 
     @NonNull
     TerraformOutputPathService terraformOutputPathService;
@@ -242,6 +243,53 @@ public class LocalTerraformStateImpl implements TerraformState {
             return true;
         } catch (Exception e) {
             log.warn("Failed to restore {} binary version {} from local storage: {}", product, version, e.getMessage());
+            return false;
+        }
+    }
+
+    @Override
+    public boolean saveTerragruntBinary(String version, File binaryFile) {
+        String binaryPath = String.format(LOCAL_TERRAGRUNT_BINARY_DIRECTORY, version);
+        log.info("Saving terragrunt binary to local storage: {}", binaryPath);
+        try {
+            File targetFile = new File(FileUtils.getUserDirectoryPath().concat(
+                    FilenameUtils.separatorsToSystem(binaryPath)));
+            FileUtils.copyFile(binaryFile, targetFile);
+            log.info("Successfully cached terragrunt binary version {} in local storage", version);
+            return true;
+        } catch (Exception e) {
+            log.warn("Failed to cache terragrunt binary version {} in local storage: {}", version, e.getMessage());
+            return false;
+        }
+    }
+
+    @Override
+    public boolean downloadTerragruntBinary(String version, File targetFile) {
+        String binaryPath = String.format(LOCAL_TERRAGRUNT_BINARY_DIRECTORY, version);
+        log.info("Attempting to restore terragrunt binary from local storage: {}", binaryPath);
+        try {
+            File sourceFile = new File(FileUtils.getUserDirectoryPath().concat(
+                    FilenameUtils.separatorsToSystem(binaryPath)));
+            if (!sourceFile.exists()) {
+                log.info("terragrunt binary version {} not found in local storage cache", version);
+                return false;
+            }
+
+            File parentDir = targetFile.getParentFile();
+            if (parentDir != null && !parentDir.exists()) {
+                FileUtils.forceMkdir(parentDir);
+            }
+
+            FileUtils.copyFile(sourceFile, targetFile);
+
+            if (!targetFile.setExecutable(true, true)) {
+                log.warn("Failed to set executable permission on restored terragrunt binary");
+            }
+
+            log.info("Successfully restored terragrunt binary version {} from local storage", version);
+            return true;
+        } catch (Exception e) {
+            log.warn("Failed to restore terragrunt binary version {} from local storage: {}", version, e.getMessage());
             return false;
         }
     }

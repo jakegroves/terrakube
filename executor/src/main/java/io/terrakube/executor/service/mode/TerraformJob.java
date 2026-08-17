@@ -36,6 +36,8 @@ public class TerraformJob {
     private String moduleSshKey;
     private String commitId;
     private boolean tofu;
+    private boolean terragrunt;
+    private String terragruntVersion;
     private String agentUrl;
     private HashMap<String, String> environmentVariables;
     private HashMap<String, String> variables;

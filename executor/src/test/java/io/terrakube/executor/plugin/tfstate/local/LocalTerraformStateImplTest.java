@@ -142,6 +142,36 @@ class LocalTerraformStateImplTest {
     }
 
     @Test
+    void testSaveAndDownloadTerragruntBinary(@TempDir Path tempDir) throws IOException {
+        File sourceBinary = new File(tempDir.toFile(), "terragrunt");
+        FileUtils.writeStringToFile(sourceBinary, "fake-binary-content", Charset.defaultCharset());
+
+        boolean saved = localTerraformState.saveTerragruntBinary("0.67.16", sourceBinary);
+        assertTrue(saved);
+
+        File targetFile = new File(tempDir.toFile(), "restored/terragrunt");
+        boolean restored = localTerraformState.downloadTerragruntBinary("0.67.16", targetFile);
+
+        assertTrue(restored);
+        assertTrue(targetFile.exists());
+        assertEquals("fake-binary-content", FileUtils.readFileToString(targetFile, Charset.defaultCharset()));
+        assertTrue(targetFile.canExecute());
+
+        // Cleanup
+        FileUtils.deleteQuietly(new File(FileUtils.getUserDirectoryPath(), ".terraform-spring-boot"));
+    }
+
+    @Test
+    void testDownloadTerragruntBinaryMissingReturnsFalse(@TempDir Path tempDir) {
+        File targetFile = new File(tempDir.toFile(), "terragrunt");
+
+        boolean restored = localTerraformState.downloadTerragruntBinary("99.99.99-does-not-exist", targetFile);
+
+        assertFalse(restored);
+        assertFalse(targetFile.exists());
+    }
+
+    @Test
     void testSaveOutput() throws IOException {
         String organizationId = "org1";
         String jobId = "job1";

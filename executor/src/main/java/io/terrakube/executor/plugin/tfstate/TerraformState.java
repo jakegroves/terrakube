@@ -41,5 +41,29 @@ public interface TerraformState {
     default boolean downloadTerraformBinary(String version, boolean tofu, File targetFile) {
         return false;
     }
+
+    /**
+     * Upload a terragrunt binary to cloud storage for caching.
+     * Fresh executor pods can restore the binary from storage instead of
+     * re-downloading from GitHub.
+     *
+     * @param version    the resolved concrete version (e.g. "0.67.0")
+     * @param binaryFile the local binary executable file to upload
+     * @return true if save succeeded
+     */
+    default boolean saveTerragruntBinary(String version, File binaryFile) {
+        return false;
+    }
+
+    /**
+     * Download a cached terragrunt binary from cloud storage to a local path.
+     *
+     * @param version    the resolved concrete version (e.g. "0.67.0")
+     * @param targetFile where to write the restored binary on the local filesystem
+     * @return true if binary was found in storage and restored successfully
+     */
+    default boolean downloadTerragruntBinary(String version, File targetFile) {
+        return false;
+    }
 }
 

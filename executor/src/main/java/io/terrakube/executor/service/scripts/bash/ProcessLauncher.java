@@ -16,19 +16,19 @@ public final class ProcessLauncher {
     private boolean inheritIO;
     private ExecutorService executor;
 
-    ProcessLauncher(ExecutorService executor, String... commands) {
+    public ProcessLauncher(ExecutorService executor, String... commands) {
         assert executor != null;
         this.executor = executor;
         this.process = null;
         this.builder = new ProcessBuilder(commands);
     }
 
-    void setOutputListener(Consumer<String> listener) {
+    public void setOutputListener(Consumer<String> listener) {
         assert this.process == null;
         this.outputListener = listener;
     }
 
-    void setErrorListener(Consumer<String> listener) {
+    public void setErrorListener(Consumer<String> listener) {
         assert this.process == null;
         this.errorListener = listener;
     }
@@ -38,7 +38,7 @@ public final class ProcessLauncher {
         this.inheritIO = inheritIO;
     }
 
-    void setDirectory(File directory) {
+    public void setDirectory(File directory) {
         assert this.process == null;
         this.builder.directory(directory);
     }
@@ -48,13 +48,13 @@ public final class ProcessLauncher {
         this.builder.command().addAll(filteredCommands.collect(Collectors.toList()));
     }
 
-    void setEnvironmentVariable(String name, String value) {
+    public void setEnvironmentVariable(String name, String value) {
         assert name != null && name.length() > 0;
         Map<String, String> env = this.builder.environment();
         value = (value != null ? env.put(name, value) : env.remove(name));
     }
 
-    void setOrAppendEnvironmentVariable(String name, String value, String delimiter) {
+    public void setOrAppendEnvironmentVariable(String name, String value, String delimiter) {
         assert name != null && name.length() > 0;
         if (value != null && value.length() > 0) {
             String current = System.getenv(name);
@@ -63,7 +63,7 @@ public final class ProcessLauncher {
         }
     }
 
-    CompletableFuture<Integer> launch() {
+    public CompletableFuture<Integer> launch() {
         assert this.process == null;
         if (this.inheritIO) {
             this.builder.inheritIO();

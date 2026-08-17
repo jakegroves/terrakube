@@ -41,6 +41,7 @@ class ExecutorJobImplTest {
 
     private final SetupWorkspace setupWorkspace = Mockito.mock(SetupWorkspace.class);
     private final TerraformExecutor terraformExecutor = Mockito.mock(TerraformExecutor.class);
+    private final TerraformExecutor terragruntExecutor = Mockito.mock(TerraformExecutor.class);
     private final UpdateJobStatus updateJobStatus = Mockito.mock(UpdateJobStatus.class);
     private final ExecutorFlagsProperties executorFlagsProperties = new ExecutorFlagsProperties();
     private final ShutdownServiceImpl shutdownService = Mockito.mock(ShutdownServiceImpl.class);
@@ -52,7 +53,7 @@ class ExecutorJobImplTest {
     private final ApplicationEventPublisher eventPublisher = publishedEvents::add;
 
     private ExecutorJobImpl subject(ApplicationEventPublisher publisher) {
-        return new ExecutorJobImpl(setupWorkspace, terraformExecutor, updateJobStatus, executorFlagsProperties,
+        return new ExecutorJobImpl(setupWorkspace, terraformExecutor, terragruntExecutor, updateJobStatus, executorFlagsProperties,
                 shutdownService, scriptEngineService, publisher, jobExecutionWatchdog, executorCapacityGate, redisTemplate);
     }
 

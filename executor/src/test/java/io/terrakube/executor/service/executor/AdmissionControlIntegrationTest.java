@@ -56,6 +56,7 @@ class AdmissionControlIntegrationTest {
 
         SetupWorkspace setupWorkspace = Mockito.mock(SetupWorkspace.class);
         TerraformExecutor terraformExecutor = Mockito.mock(TerraformExecutor.class);
+        TerraformExecutor terragruntExecutor = Mockito.mock(TerraformExecutor.class);
         UpdateJobStatus updateJobStatus = Mockito.mock(UpdateJobStatus.class);
         ShutdownServiceImpl shutdownService = Mockito.mock(ShutdownServiceImpl.class);
         ScriptEngineService scriptEngineService = Mockito.mock(ScriptEngineService.class);
@@ -73,7 +74,7 @@ class AdmissionControlIntegrationTest {
 
         ExecutorCapacityGate gate = new ExecutorCapacityGate();
         RedisTemplate<String, Object> redisTemplate = Mockito.mock(RedisTemplate.class);
-        ExecutorJobImpl executorJobImpl = new ExecutorJobImpl(setupWorkspace, terraformExecutor, updateJobStatus,
+        ExecutorJobImpl executorJobImpl = new ExecutorJobImpl(setupWorkspace, terraformExecutor, terragruntExecutor, updateJobStatus,
                 new ExecutorFlagsProperties(), shutdownService, scriptEngineService, eventPublisher,
                 jobExecutionWatchdog, gate, redisTemplate);
         OnlineModeServiceImpl controller = new OnlineModeServiceImpl(

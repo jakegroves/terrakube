@@ -261,4 +261,58 @@ public class AzureTerraformStateImpl implements TerraformState {
             return false;
         }
     }
+
+    @Override
+    public boolean saveTerragruntBinary(String version, File binaryFile) {
+        String blobName = "terragrunt/" + version + "/terragrunt";
+        log.info("Saving terragrunt binary to Azure Blob: {}", blobName);
+        try {
+            BlobContainerClient blobContainerClient = blobServiceClient.getBlobContainerClient(CONTAINER_BINARY_NAME);
+            if (!blobContainerClient.exists()) {
+                blobContainerClient.create();
+            }
+            BlobClient blobClient = blobContainerClient.getBlobClient(blobName);
+            blobClient.uploadFromFile(binaryFile.getAbsolutePath(), true);
+            log.info("Successfully cached terragrunt binary version {} in Azure Blob", version);
+            return true;
+        } catch (Exception e) {
+            log.warn("Failed to cache terragrunt binary version {} in Azure Blob: {}", version, e.getMessage());
+            return false;
+        }
+    }
+
+    @Override
+    public boolean downloadTerragruntBinary(String version, File targetFile) {
+        String blobName = "terragrunt/" + version + "/terragrunt";
+        log.info("Attempting to restore terragrunt binary from Azure Blob: {}", blobName);
+        try {
+            BlobContainerClient blobContainerClient = blobServiceClient.getBlobContainerClient(CONTAINER_BINARY_NAME);
+            if (!blobContainerClient.exists()) {
+                log.info("terragrunt binary container does not exist in Azure Blob, no cache available");
+                return false;
+            }
+            BlobClient blobClient = blobContainerClient.getBlobClient(blobName);
+            if (!blobClient.exists()) {
+                log.info("terragrunt binary version {} not found in Azure Blob cache", version);
+                return false;
+            }
+
+            File parentDir = targetFile.getParentFile();
+            if (parentDir != null && !parentDir.exists()) {
+                FileUtils.forceMkdir(parentDir);
+            }
+
+            blobClient.downloadToFile(targetFile.getAbsolutePath(), true);
+
+            if (!targetFile.setExecutable(true, true)) {
+                log.warn("Failed to set executable permission on restored terragrunt binary");
+            }
+
+            log.info("Successfully restored terragrunt binary version {} from Azure Blob", version);
+            return true;
+        } catch (Exception e) {
+            log.warn("Failed to restore terragrunt binary version {} from Azure Blob: {}", version, e.getMessage());
+            return false;
+        }
+    }
 }

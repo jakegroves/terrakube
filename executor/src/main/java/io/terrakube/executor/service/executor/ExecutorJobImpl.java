@@ -1,6 +1,5 @@
 package io.terrakube.executor.service.executor;
 
-import lombok.AllArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.io.FileUtils;
 import org.apache.commons.io.IOUtils;
@@ -13,6 +12,7 @@ import io.terrakube.executor.service.workspace.WorkspaceException;
 import io.terrakube.executor.service.shutdown.ShutdownServiceImpl;
 import io.terrakube.executor.service.status.UpdateJobStatus;
 import io.terrakube.executor.service.terraform.TerraformExecutor;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.boot.availability.AvailabilityChangeEvent;
 import org.springframework.boot.availability.ReadinessState;
 import org.springframework.context.ApplicationEventPublisher;
@@ -25,13 +25,13 @@ import java.io.*;
 import java.nio.charset.Charset;
 import java.util.function.Consumer;
 
-@AllArgsConstructor
 @Slf4j
 @Service
 public class ExecutorJobImpl implements ExecutorJob {
 
     SetupWorkspace setupWorkspace;
     TerraformExecutor terraformExecutor;
+    TerraformExecutor terragruntExecutor;
     UpdateJobStatus updateJobStatus;
     ExecutorFlagsProperties executorFlagsProperties;
     ShutdownServiceImpl shutdownService;
@@ -40,6 +40,30 @@ public class ExecutorJobImpl implements ExecutorJob {
     JobExecutionWatchdog jobExecutionWatchdog;
     ExecutorCapacityGate executorCapacityGate;
     RedisTemplate<String, Object> redisTemplate;
+
+    public ExecutorJobImpl(SetupWorkspace setupWorkspace,
+                            @Qualifier("terraformExecutor") TerraformExecutor terraformExecutor,
+                            @Qualifier("terragruntExecutor") TerraformExecutor terragruntExecutor,
+                            UpdateJobStatus updateJobStatus,
+                            ExecutorFlagsProperties executorFlagsProperties,
+                            ShutdownServiceImpl shutdownService,
+                            ScriptEngineService scriptEngineService,
+                            ApplicationEventPublisher eventPublisher,
+                            JobExecutionWatchdog jobExecutionWatchdog,
+                            ExecutorCapacityGate executorCapacityGate,
+                            RedisTemplate<String, Object> redisTemplate) {
+        this.setupWorkspace = setupWorkspace;
+        this.terraformExecutor = terraformExecutor;
+        this.terragruntExecutor = terragruntExecutor;
+        this.updateJobStatus = updateJobStatus;
+        this.executorFlagsProperties = executorFlagsProperties;
+        this.shutdownService = shutdownService;
+        this.scriptEngineService = scriptEngineService;
+        this.eventPublisher = eventPublisher;
+        this.jobExecutionWatchdog = jobExecutionWatchdog;
+        this.executorCapacityGate = executorCapacityGate;
+        this.redisTemplate = redisTemplate;
+    }
 
     @Async
     @Override
@@ -119,19 +143,21 @@ public class ExecutorJobImpl implements ExecutorJob {
 
         updateJobStatus.setRunningStatus(terraformJob, commitId);
 
+        TerraformExecutor activeExecutor = terraformJob.isTerragrunt() ? terragruntExecutor : terraformExecutor;
+
         switch (terraformJob.getType()) {
             case "terraformPlanDestroy":
             case "terraformPlan":
                 log.info("Execute Plan for Organization {} Workspace {} ", terraformJob.getOrganizationId(), terraformJob.getWorkspaceId());
-                terraformResult = terraformExecutor.plan(terraformJob, terraformWorkingDir, terraformJob.getType().equals("terraformPlanDestroy"));
+                terraformResult = activeExecutor.plan(terraformJob, terraformWorkingDir, terraformJob.getType().equals("terraformPlanDestroy"));
                 break;
             case "terraformApply":
                 log.info("Execute Apply for Organization {} Workspace {} ", terraformJob.getOrganizationId(), terraformJob.getWorkspaceId());
-                terraformResult = terraformExecutor.apply(terraformJob, terraformWorkingDir);
+                terraformResult = activeExecutor.apply(terraformJob, terraformWorkingDir);
                 break;
             case "terraformDestroy":
                 log.info("Execute Destroy for Organization {} Workspace {} ", terraformJob.getOrganizationId(), terraformJob.getWorkspaceId());
-                terraformResult = terraformExecutor.destroy(terraformJob, terraformWorkingDir);
+                terraformResult = activeExecutor.destroy(terraformJob, terraformWorkingDir);
                 break;
             case "customScripts":
             case "approval":

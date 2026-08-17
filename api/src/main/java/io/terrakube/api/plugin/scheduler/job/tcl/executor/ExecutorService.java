@@ -182,6 +182,8 @@ public class ExecutorService {
             }
         }
         executorContext.setTofu(iacType(job));
+        executorContext.setTerragrunt(isTerragrunt(job));
+        executorContext.setTerragruntVersion(job.getWorkspace().getTerragruntVersion());
         executorContext.setCommitId(job.getCommitId());
         executorContext
                 .setFolder(job.getWorkspace().getFolder() != null ? job.getWorkspace().getFolder().split(",")[0] : "/");
@@ -239,8 +241,11 @@ public class ExecutorService {
     }
 
     private boolean iacType(Job job) {
-        return job.getWorkspace().getIacType() != null && job.getWorkspace().getIacType().equals("terraform") ? false
-                : true;
+        return "tofu".equals(job.getWorkspace().getIacType());
+    }
+
+    private boolean isTerragrunt(Job job) {
+        return "terragrunt".equals(job.getWorkspace().getIacType());
     }
 
     /**

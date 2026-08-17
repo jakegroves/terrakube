@@ -35,6 +35,8 @@ public class ExecutorContext {
     private String moduleSshKey;
     private String commitId;
     private boolean tofu;
+    private boolean terragrunt;
+    private String terragruntVersion;
     private HashMap<String, String> environmentVariables;
     private HashMap<String, String> variables;
 }

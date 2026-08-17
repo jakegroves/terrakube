@@ -93,7 +93,7 @@ public class ApplyStructuredOutputService {
         return updatedContext;
     }
 
-    void publishApplyProgress(String organizationId, String jobId, String stepId, List<Map<String, Object>> changes, List<Map<String, Object>> jobDiagnostics) {
+    public void publishApplyProgress(String organizationId, String jobId, String stepId, List<Map<String, Object>> changes, List<Map<String, Object>> jobDiagnostics) {
         try {
             Map<String, Object> context = getCurrentContext(organizationId, jobId);
             Map<String, Object> updatedContext = updateApplyContext(context, stepId, changes, jobDiagnostics);
@@ -104,7 +104,7 @@ public class ApplyStructuredOutputService {
     }
 
     @SuppressWarnings("unchecked")
-    void resolveFinalValues(List<Map<String, Object>> changes, String stateJson) {
+    public void resolveFinalValues(List<Map<String, Object>> changes, String stateJson) {
         Map<String, Object> resolvedValuesByAddress = new HashMap<>();
         Map<String, Object> resolvedSensitiveValuesByAddress = new HashMap<>();
         try {

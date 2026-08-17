@@ -68,6 +68,7 @@ type CreateWorkspaceForm = {
   folder: string;
   name: string;
   terraformVersion: string;
+  terragruntVersion?: string;
   branch: string;
   iacType: string;
   defaultTemplate: string;
@@ -197,7 +198,11 @@ export const CreateWorkspace = () => {
     setLoading(true);
     getIacTypes();
 
-    const versionsApi = `${new URL(window._env_.REACT_APP_TERRAKUBE_API_URL).origin}/${iacType.id}/index.json`;
+    // Terragrunt drives a real Terraform binary underneath, so its version list comes from the
+    // same /terraform/index.json manifest terraform workspaces use - there is no /terragrunt
+    // endpoint here.
+    const versionsApiIacType = iacType.id === "tofu" ? "tofu" : "terraform";
+    const versionsApi = `${new URL(window._env_.REACT_APP_TERRAKUBE_API_URL).origin}/${versionsApiIacType}/index.json`;
 
     // Parallel load: versions, SSH keys, templates, VCS, and projects
     Promise.all([
@@ -429,7 +434,10 @@ export const CreateWorkspace = () => {
   };
 
   const loadVersions = (iacType: IacType) => {
-    const versionsApi = `${new URL(window._env_.REACT_APP_TERRAKUBE_API_URL).origin}/${iacType.id}/index.json`;
+    // Terragrunt drives a real Terraform binary underneath, so it reuses the /terraform
+    // version manifest - there is no /terragrunt endpoint.
+    const versionsApiIacType = iacType.id === "tofu" ? "tofu" : "terraform";
+    const versionsApi = `${new URL(window._env_.REACT_APP_TERRAKUBE_API_URL).origin}/${versionsApiIacType}/index.json`;
     axiosInstance.get(versionsApi).then((resp) => {
       const tfVersions = [];
       if (iacType.id === "tofu") {
@@ -469,6 +477,7 @@ export const CreateWorkspace = () => {
               folder: values.folder,
               name: values.name,
               terraformVersion: values.terraformVersion,
+              terragruntVersion: iacType.id === "terragrunt" ? values.terragruntVersion : undefined,
               branch: values.branch,
               iacType: iacType.id,
               defaultTemplate: values.defaultTemplate,
@@ -582,6 +591,12 @@ export const CreateWorkspace = () => {
         icon: withBasePath("/providers/terraform.svg"),
       },
       { id: "tofu", name: "OpenTofu", icon: withBasePath("/providers/opentofu.png") },
+      {
+        id: "terragrunt",
+        name: "Terragrunt",
+        description: "Run Terragrunt on top of Terraform to orchestrate multiple modules and remote state.",
+        icon: withBasePath("/providers/terragrunt.svg"),
+      },
     ];
 
     setIacTypes(iacTypes);
@@ -1010,11 +1025,12 @@ export const CreateWorkspace = () => {
               </Form.Item>
               <Form.Item
                 name="terraformVersion"
-                label={iacType?.name + " Version"}
+                label={(iacType?.id === "terragrunt" ? "Terraform" : iacType?.name) + " Version"}
                 rules={[{ required: true }, { validator: validateTerraformVersion(terraformVersions) }]}
                 extra={
                   "The version of " +
-                  iacType?.name +
+                  (iacType?.id === "terragrunt" ? "Terraform" : iacType?.name) +
+                  (iacType?.id === "terragrunt" ? " Terragrunt drives underneath" : "") +
                   " to use for this workspace. It will not upgrade automatically. Version constraints are also supported (e.g. ~>1.11.0, >=1.5.7 <1.9.0)."
                 }
               >
@@ -1025,6 +1041,15 @@ export const CreateWorkspace = () => {
                   style={{ width: 250 }}
                 />
               </Form.Item>
+              {iacType?.id === "terragrunt" && (
+                <Form.Item
+                  name="terragruntVersion"
+                  label="Terragrunt Version"
+                  extra="The Terragrunt CLI version to use for this workspace. Leave blank to use the default supported version."
+                >
+                  <Input placeholder="e.g. 0.67.16" style={{ width: 250 }} />
+                </Form.Item>
+              )}
               <Form.Item
                 hidden={!sshKeysVisible}
                 name="sshKey"

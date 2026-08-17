@@ -246,4 +246,52 @@ public class GcpTerraformStateImpl implements TerraformState {
             return false;
         }
     }
+
+    @Override
+    public boolean saveTerragruntBinary(String version, File binaryFile) {
+        String blobKey = String.format("tfbinary/terragrunt/%s/terragrunt", version);
+        log.info("Saving terragrunt binary to GCS: {}", blobKey);
+        try {
+            BlobId blobId = BlobId.of(bucketName, blobKey);
+            BlobInfo blobInfo = BlobInfo.newBuilder(blobId).build();
+            storage.create(blobInfo, FileUtils.readFileToByteArray(binaryFile));
+            log.info("Successfully cached terragrunt binary version {} in GCS", version);
+            return true;
+        } catch (Exception e) {
+            log.warn("Failed to cache terragrunt binary version {} in GCS: {}", version, e.getMessage());
+            return false;
+        }
+    }
+
+    @Override
+    public boolean downloadTerragruntBinary(String version, File targetFile) {
+        String blobKey = String.format("tfbinary/terragrunt/%s/terragrunt", version);
+        log.info("Attempting to restore terragrunt binary from GCS: {}", blobKey);
+        try {
+            BlobId blobId = BlobId.of(bucketName, blobKey);
+            com.google.cloud.storage.Blob blob = storage.get(blobId);
+            if (blob == null || !blob.exists()) {
+                log.info("terragrunt binary version {} not found in GCS cache", version);
+                return false;
+            }
+
+            File parentDir = targetFile.getParentFile();
+            if (parentDir != null && !parentDir.exists()) {
+                FileUtils.forceMkdir(parentDir);
+            }
+
+            byte[] content = storage.readAllBytes(blobId);
+            FileUtils.writeByteArrayToFile(targetFile, content);
+
+            if (!targetFile.setExecutable(true, true)) {
+                log.warn("Failed to set executable permission on restored terragrunt binary");
+            }
+
+            log.info("Successfully restored terragrunt binary version {} from GCS", version);
+            return true;
+        } catch (Exception e) {
+            log.warn("Failed to restore terragrunt binary version {} from GCS: {}", version, e.getMessage());
+            return false;
+        }
+    }
 }

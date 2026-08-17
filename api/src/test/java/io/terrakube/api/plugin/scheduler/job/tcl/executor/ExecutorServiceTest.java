@@ -16,6 +16,7 @@ import io.terrakube.api.rs.vcs.Vcs;
 import io.terrakube.api.rs.workspace.Workspace;
 import io.terrakube.api.rs.workspace.parameters.Category;
 import io.terrakube.api.rs.workspace.parameters.Variable;
+import java.lang.reflect.Method;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Optional;
@@ -190,5 +191,40 @@ class ExecutorServiceTest {
 
         assertThat(workspace.getSource()).isEqualTo("empty");
         verify(workspaceRepository, never()).save(workspace);
+    }
+
+    private boolean invokeBooleanHelper(String methodName) throws Exception {
+        Method method = ExecutorService.class.getDeclaredMethod(methodName, Job.class);
+        method.setAccessible(true);
+        return (boolean) method.invoke(executorService, job);
+    }
+
+    @Test
+    void iacTypeShouldBeTofuOnlyForTofuWorkspaces() throws Exception {
+        workspace.setIacType("tofu");
+        assertThat(invokeBooleanHelper("iacType")).isTrue();
+
+        workspace.setIacType("terraform");
+        assertThat(invokeBooleanHelper("iacType")).isFalse();
+
+        // Regression guard: before this method became an exact match on "tofu", any
+        // non-"terraform" value (including "terragrunt") was treated as tofu=true.
+        workspace.setIacType("terragrunt");
+        assertThat(invokeBooleanHelper("iacType")).isFalse();
+    }
+
+    @Test
+    void isTerragruntShouldOnlyMatchTerragruntWorkspaces() throws Exception {
+        workspace.setIacType("terragrunt");
+        assertThat(invokeBooleanHelper("isTerragrunt")).isTrue();
+
+        workspace.setIacType("terraform");
+        assertThat(invokeBooleanHelper("isTerragrunt")).isFalse();
+
+        workspace.setIacType("tofu");
+        assertThat(invokeBooleanHelper("isTerragrunt")).isFalse();
+
+        workspace.setIacType(null);
+        assertThat(invokeBooleanHelper("isTerragrunt")).isFalse();
     }
 }

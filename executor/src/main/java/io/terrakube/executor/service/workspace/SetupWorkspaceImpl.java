@@ -47,6 +47,7 @@ import org.eclipse.jgit.transport.sshd.SshdSessionFactory;
 import org.eclipse.jgit.transport.sshd.SshdSessionFactoryBuilder;
 import org.eclipse.jgit.util.FS;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
@@ -73,7 +74,7 @@ public class SetupWorkspaceImpl implements SetupWorkspace {
 
     public SetupWorkspaceImpl(WorkspaceSecurity workspaceSecurity,
                               @Value("${io.terrakube.client.enableSecurity}") boolean enableRegistrySecurity,
-                              TerraformExecutor terraformExecutor,
+                              @Qualifier("terraformExecutor") TerraformExecutor terraformExecutor,
                               @Value("${io.terrakube.api.url}") String apiUrl, TerrakubeClient terrakubeClient) {
         this.workspaceSecurity = workspaceSecurity;
         this.enableRegistrySecurity = enableRegistrySecurity;

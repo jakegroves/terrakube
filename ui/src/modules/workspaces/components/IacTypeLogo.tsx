@@ -16,6 +16,9 @@ export default function IacTypeLogo({ type }: Props) {
     case "tofu":
       return <img width="18px" alt="opentofu-logo" src={withBasePath("/providers/opentofu.png")} />;
 
+    case "terragrunt":
+      return <img width="18px" alt="terragrunt-logo" src={withBasePath("/providers/terragrunt.svg")} />;
+
     default:
       return null;
   }

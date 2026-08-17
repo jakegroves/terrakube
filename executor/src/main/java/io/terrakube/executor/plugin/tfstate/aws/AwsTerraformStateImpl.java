@@ -361,5 +361,64 @@ public class AwsTerraformStateImpl implements TerraformState {
         }
     }
 
+    @Override
+    public boolean saveTerragruntBinary(String version, File binaryFile) {
+        String blobKey = "tfbinary/terragrunt/" + version + "/terragrunt";
+        log.info("Saving terragrunt binary to S3: {}", blobKey);
+        try {
+            PutObjectRequest putObjectRequest = PutObjectRequest.builder()
+                    .bucket(bucketName)
+                    .key(blobKey)
+                    .build();
+
+            s3client.putObject(putObjectRequest, RequestBody.fromFile(binaryFile));
+            log.info("Successfully cached terragrunt binary version {} in S3", version);
+            return true;
+        } catch (Exception e) {
+            log.warn("Failed to cache terragrunt binary version {} in S3: {}", version, e.getMessage());
+            return false;
+        }
+    }
+
+    @Override
+    public boolean downloadTerragruntBinary(String version, File targetFile) {
+        String blobKey = "tfbinary/terragrunt/" + version + "/terragrunt";
+        log.info("Attempting to restore terragrunt binary from S3: {}", blobKey);
+        try {
+            HeadObjectRequest headRequest = HeadObjectRequest.builder()
+                    .bucket(bucketName)
+                    .key(blobKey)
+                    .build();
+            s3client.headObject(headRequest);
+
+            GetObjectRequest getRequest = GetObjectRequest.builder()
+                    .bucket(bucketName)
+                    .key(blobKey)
+                    .build();
+
+            File parentDir = targetFile.getParentFile();
+            if (parentDir != null && !parentDir.exists()) {
+                FileUtils.forceMkdir(parentDir);
+            }
+
+            ResponseBytes<GetObjectResponse> objectBytes = s3client.getObject(getRequest,
+                    ResponseTransformer.toBytes());
+            FileUtils.writeByteArrayToFile(targetFile, objectBytes.asByteArray());
+
+            if (!targetFile.setExecutable(true, true)) {
+                log.warn("Failed to set executable permission on restored terragrunt binary");
+            }
+
+            log.info("Successfully restored terragrunt binary version {} from S3", version);
+            return true;
+        } catch (NoSuchKeyException e) {
+            log.info("terragrunt binary version {} not found in S3 cache", version);
+            return false;
+        } catch (Exception e) {
+            log.warn("Failed to restore terragrunt binary version {} from S3: {}", version, e.getMessage());
+            return false;
+        }
+    }
+
 }
 
