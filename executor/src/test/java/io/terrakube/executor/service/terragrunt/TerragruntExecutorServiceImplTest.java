@@ -145,5 +145,50 @@ class TerragruntExecutorServiceImplTest {
         assertEquals(0, exitCode);
         assertTrue(output.toString().contains("TF_PATH=" + terraformBinary.getAbsolutePath()));
         assertTrue(output.toString().contains("ARGS=plan -input=false"));
+
+        File tfvarsFile = new File(tempDir.toFile(), "terrakube.auto.tfvars.json");
+        assertTrue(tfvarsFile.exists(), "runTerragrunt should write an auto.tfvars.json file for the job's variables");
+        assertTrue(FileUtils.readFileToString(tfvarsFile, java.nio.charset.Charset.defaultCharset())
+                .contains("\"instance_type\":\"t3.micro\""));
+    }
+
+    private void invokeWriteAutoTfvarsFile(File workingDir, java.util.Map<String, String> variables) throws Exception {
+        Method method = TerragruntExecutorServiceImpl.class.getDeclaredMethod("writeAutoTfvarsFile", File.class, java.util.Map.class);
+        method.setAccessible(true);
+        method.invoke(subject, workingDir, variables);
+    }
+
+    @Test
+    void writeAutoTfvarsFileSkipsWritingWhenThereAreNoVariables(@TempDir Path tempDir) throws Exception {
+        invokeWriteAutoTfvarsFile(tempDir.toFile(), null);
+        invokeWriteAutoTfvarsFile(tempDir.toFile(), java.util.Map.of());
+
+        assertTrue(tempDir.toFile().listFiles() == null || tempDir.toFile().listFiles().length == 0);
+    }
+
+    private File invokeResolveTerraformExecutionDir(File workingDir) throws Exception {
+        Method method = TerragruntExecutorServiceImpl.class.getDeclaredMethod("resolveTerraformExecutionDir", File.class);
+        method.setAccessible(true);
+        return (File) method.invoke(subject, workingDir);
+    }
+
+    @Test
+    void resolveTerraformExecutionDirFallsBackToWorkingDirWhenNoCacheExists(@TempDir Path tempDir) throws Exception {
+        assertEquals(tempDir.toFile(), invokeResolveTerraformExecutionDir(tempDir.toFile()));
+    }
+
+    @Test
+    void resolveTerraformExecutionDirFindsTheModuleDirectoryTerragruntInitializedInsideTheCache(@TempDir Path tempDir) throws Exception {
+        File moduleDir = new File(tempDir.toFile(), ".terragrunt-cache/sourceHash/downloadHash");
+        FileUtils.forceMkdir(new File(moduleDir, ".terraform"));
+
+        assertEquals(moduleDir, invokeResolveTerraformExecutionDir(tempDir.toFile()));
+    }
+
+    @Test
+    void resolveTerraformExecutionDirFallsBackWhenCacheExistsButInitNeverRan(@TempDir Path tempDir) throws Exception {
+        FileUtils.forceMkdir(new File(tempDir.toFile(), ".terragrunt-cache/sourceHash/downloadHash"));
+
+        assertEquals(tempDir.toFile(), invokeResolveTerraformExecutionDir(tempDir.toFile()));
     }
 }

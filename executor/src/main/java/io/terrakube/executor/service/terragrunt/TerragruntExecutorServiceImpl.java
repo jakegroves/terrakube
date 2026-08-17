@@ -49,20 +49,29 @@ import java.util.stream.Collectors;
  * to write/read the plan file at the same fixed path those already expect),
  * and job logging ({@link ProcessLogs}).
  *
- * <p>Every terraform-aware operation (init/plan/apply/destroy/show/state
- * pull/output) is run <em>through terragrunt</em>, never through the plain
- * terraform/tofu client - terragrunt resolves its own cache directory and
- * provider context, so mixing in a plain `terraform show` against the
- * checkout root (as the terraform/tofu path does) is not reliable here.
+ * <p>init/plan/apply/destroy run <em>through terragrunt</em> (they need its
+ * hook and dependency lifecycle). Read-only state introspection
+ * (`state pull`/`show`/`output`, see {@link #capturePlainTerraform}) instead
+ * runs the plain terraform binary directly inside the
+ * {@code .terragrunt-cache/.../} directory Terragrunt already initialized -
+ * see {@link #resolveTerraformExecutionDir} for why, and
+ * docs/terragrunt.md in github.com/mattrobinsonsre/terrapod for a similar
+ * platform documenting the same approach.
  *
- * <p>Known v1 gaps, called out rather than silently skipped: no SSH module
+ * <p>Terrakube's own backend override file is always written
+ * ({@link TerraformState#getBackendStateFile}), the same way it is for
+ * terraform/tofu workspaces, so Terrakube keeps state ownership regardless
+ * of any {@code remote_state} block a repository's {@code terragrunt.hcl}
+ * declares - this relies on Terragrunt copying that override file into its
+ * cache directory along with the rest of the module source.
+ *
+ * <p>Known v1 gap, called out rather than silently skipped: no SSH module
  * key / dynamic-credential env rewiring (ported from
  * {@code TerraformExecutorServiceImpl} only for the terraform/tofu path so
- * far), and Terrakube's own backend override file is always written
- * ({@link TerraformState#getBackendStateFile}) - if a repository's
- * {@code terragrunt.hcl} also declares its own {@code remote_state} block,
- * the two will conflict. Both need verification against a real
- * terragrunt.hcl-based repository before this ships.
+ * far). Everything in this class is unverified against a real
+ * terragrunt.hcl-based repository and real terragrunt binary - it compiles
+ * and unit-tests cleanly, but needs an end-to-end smoke test in a real
+ * environment before being trusted in production.
  */
 @Slf4j
 @Service("terragruntExecutor")
@@ -419,7 +428,15 @@ public class TerragruntExecutorServiceImpl implements TerraformExecutor {
 
     private int runTerragrunt(TerraformJob terraformJob, File terraformWorkingDir, File terragruntBinary,
                                File terraformBinary, List<String> args, Consumer<String> outputListener,
-                               Consumer<String> errorListener) throws ExecutionException, InterruptedException {
+                               Consumer<String> errorListener) throws IOException, ExecutionException, InterruptedException {
+        // Written fresh before every invocation (plan/apply/destroy may each run in a freshly
+        // checked-out working directory) and picked up by terraform automatically - any
+        // *.auto.tfvars.json file in the module directory loads with no extra flag needed, and
+        // Terragrunt's copy-into-.terragrunt-cache step carries it along with the rest of the
+        // module source. JSON (vs. TF_VAR_ env vars) round-trips lists/maps/objects correctly
+        // instead of requiring each value to already be valid HCL text.
+        writeAutoTfvarsFile(terraformWorkingDir, terraformJob.getVariables());
+
         List<String> command = new ArrayList<>();
         command.add(terragruntBinary.getAbsolutePath());
         command.addAll(args);
@@ -437,10 +454,6 @@ public class TerragruntExecutorServiceImpl implements TerraformExecutor {
         processLauncher.setOrAppendEnvironmentVariable("PATH", terraformBinary.getParentFile().getAbsolutePath(), File.pathSeparator);
         processLauncher.setOrAppendEnvironmentVariable("PATH", terragruntBinary.getParentFile().getAbsolutePath(), File.pathSeparator);
 
-        HashMap<String, String> variables = terraformJob.getVariables();
-        if (variables != null) {
-            variables.forEach((key, value) -> processLauncher.setEnvironmentVariable("TF_VAR_" + key, value));
-        }
         HashMap<String, String> environmentVariables = terraformJob.getEnvironmentVariables();
         if (environmentVariables != null) {
             environmentVariables.forEach(processLauncher::setEnvironmentVariable);
@@ -452,40 +465,108 @@ public class TerragruntExecutorServiceImpl implements TerraformExecutor {
         return processLauncher.launch().get();
     }
 
-    /** Captures the full stdout of a non-streaming terragrunt command (e.g. `show`, `output`) as one string. */
-    private String captureTerragrunt(TerraformJob terraformJob, File terraformWorkingDir, List<String> args) {
+    private static final String AUTO_TFVARS_FILE_NAME = "terrakube.auto.tfvars.json";
+
+    private void writeAutoTfvarsFile(File terraformWorkingDir, Map<String, String> variables) throws IOException {
+        if (variables == null || variables.isEmpty()) {
+            return;
+        }
+        objectMapper.writeValue(new File(terraformWorkingDir, AUTO_TFVARS_FILE_NAME), variables);
+    }
+
+    private static final String TERRAGRUNT_CACHE_DIR_NAME = ".terragrunt-cache";
+    private static final String TERRAFORM_STATE_DIR_NAME = ".terraform";
+
+    /**
+     * Read-only state/output introspection (`state pull`, `show`, `output`) doesn't need
+     * Terragrunt's hook/dependency lifecycle - it only needs the exact directory Terragrunt
+     * already ran `terraform init` in, since that's where the resolved backend config and
+     * downloaded providers live. Terragrunt copies the module into
+     * `.terragrunt-cache/<sourceHash>/<downloadHash>/...` before invoking terraform there, so
+     * running the plain terraform binary against `terraformWorkingDir` itself (which has no
+     * `.terraform` of its own) would miss both. Mirrors the approach documented for a similar
+     * Terragrunt-wrapping platform (github.com/mattrobinsonsre/terrapod docs/terragrunt.md:
+     * "Terragrunt copies each unit into a .terragrunt-cache/... directory; [it] follows into
+     * that directory for state operations").
+     */
+    private String capturePlainTerraform(TerraformJob terraformJob, File terraformWorkingDir, List<String> args) {
         try {
             File terraformBinary = ensureTerraformBinary(terraformJob);
-            File terragruntBinary = terragruntBinaryResolver.ensureBinary(terragruntBinaryResolver.resolveVersion(terraformJob));
+            File executionDir = resolveTerraformExecutionDir(terraformWorkingDir);
+
+            List<String> command = new ArrayList<>();
+            command.add(terraformBinary.getAbsolutePath());
+            command.addAll(args);
+
+            ProcessLauncher processLauncher = new ProcessLauncher(processExecutor, command.toArray(new String[0]));
+            processLauncher.setDirectory(executionDir);
+            processLauncher.setEnvironmentVariable("TF_IN_AUTOMATION", "true");
 
             TextStringBuilder output = new TextStringBuilder();
             TextStringBuilder errorOutput = new TextStringBuilder();
-            int exitCode = runTerragrunt(terraformJob, terraformWorkingDir, terragruntBinary, terraformBinary,
-                    args, output::appendln, errorOutput::appendln);
+            processLauncher.setOutputListener(output::appendln);
+            processLauncher.setErrorListener(errorOutput::appendln);
+
+            int exitCode = processLauncher.launch().get();
 
             if (exitCode != 0) {
-                log.warn("terragrunt {} failed for job {} step {}: {}", args, terraformJob.getJobId(),
-                        terraformJob.getStepId(), errorOutput);
+                log.warn("terraform {} failed for job {} step {} in {}: {}", args, terraformJob.getJobId(),
+                        terraformJob.getStepId(), executionDir, errorOutput);
                 return null;
             }
 
             return output.toString();
         } catch (Exception e) {
-            log.warn("Unable to run terragrunt {} for job {}: {}", args, terraformJob.getJobId(), e.getMessage());
+            log.warn("Unable to run terraform {} for job {}: {}", args, terraformJob.getJobId(), e.getMessage());
             return null;
         }
     }
 
+    /**
+     * Resolves the actual directory Terragrunt ran terraform in for this working directory -
+     * the deepest directory under `.terragrunt-cache` that contains a `.terraform` folder - or
+     * falls back to the working directory itself if no cache directory exists (e.g. init never
+     * ran, or a future Terragrunt version changes this layout).
+     */
+    private File resolveTerraformExecutionDir(File terraformWorkingDir) {
+        File cacheRoot = new File(terraformWorkingDir, TERRAGRUNT_CACHE_DIR_NAME);
+        if (!cacheRoot.isDirectory()) {
+            return terraformWorkingDir;
+        }
+        File resolved = findDirectoryContaining(cacheRoot, TERRAFORM_STATE_DIR_NAME, 0);
+        return resolved != null ? resolved : terraformWorkingDir;
+    }
+
+    private File findDirectoryContaining(File root, String childName, int depth) {
+        if (depth > 10) {
+            return null;
+        }
+        if (new File(root, childName).isDirectory()) {
+            return root;
+        }
+        File[] children = root.listFiles(File::isDirectory);
+        if (children == null) {
+            return null;
+        }
+        for (File child : children) {
+            File found = findDirectoryContaining(child, childName, depth + 1);
+            if (found != null) {
+                return found;
+            }
+        }
+        return null;
+    }
+
     private String getShowJson(TerraformJob terraformJob, File terraformWorkingDir, File planFile) {
-        return captureTerragrunt(terraformJob, terraformWorkingDir, List.of("show", "-json", planFile.getAbsolutePath()));
+        return capturePlainTerraform(terraformJob, terraformWorkingDir, List.of("show", "-json", planFile.getAbsolutePath()));
     }
 
     private String getShowStateJson(TerraformJob terraformJob, File terraformWorkingDir) {
-        return captureTerragrunt(terraformJob, terraformWorkingDir, List.of("show", "-json"));
+        return capturePlainTerraform(terraformJob, terraformWorkingDir, List.of("show", "-json"));
     }
 
     private void handleTerragruntStateChange(TerraformJob terraformJob, File terraformWorkingDir) {
-        String rawState = captureTerragrunt(terraformJob, terraformWorkingDir, List.of("state", "pull"));
+        String rawState = capturePlainTerraform(terraformJob, terraformWorkingDir, List.of("state", "pull"));
         if (rawState != null) {
             terraformJob.setRawState(rawState);
         }
@@ -494,7 +575,7 @@ public class TerragruntExecutorServiceImpl implements TerraformExecutor {
         if (stateJson != null) {
             terraformState.saveStateJson(terraformJob, stateJson, rawState);
 
-            String outputJson = captureTerragrunt(terraformJob, terraformWorkingDir, List.of("output", "-json"));
+            String outputJson = capturePlainTerraform(terraformJob, terraformWorkingDir, List.of("output", "-json"));
             if (outputJson != null) {
                 terraformJob.setTerraformOutput(outputJson);
                 terraformOutputsService.publishOutputs(terraformJob.getOrganizationId(), terraformJob.getJobId(),

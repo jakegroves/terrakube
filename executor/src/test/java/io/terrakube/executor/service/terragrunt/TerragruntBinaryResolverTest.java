@@ -1,16 +1,20 @@
 package io.terrakube.executor.service.terragrunt;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
 import io.terrakube.executor.plugin.tfstate.TerraformState;
 import io.terrakube.executor.service.mode.TerraformJob;
 import org.apache.commons.io.FileUtils;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
+import org.semver4j.Semver;
 
 import java.io.File;
 import java.nio.charset.Charset;
+import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
@@ -22,7 +26,7 @@ import static org.mockito.Mockito.when;
 class TerragruntBinaryResolverTest {
 
     private final TerraformState terraformState = mock(TerraformState.class);
-    private final TerragruntBinaryResolver resolver = new TerragruntBinaryResolver(terraformState);
+    private final TerragruntBinaryResolver resolver = new TerragruntBinaryResolver(terraformState, new ObjectMapper());
 
     @AfterEach
     void cleanup() {
@@ -45,6 +49,38 @@ class TerragruntBinaryResolverTest {
         job.setTerragruntVersion(" 0.55.1 ");
 
         assertEquals("0.55.1", resolver.resolveVersion(job));
+    }
+
+    @Test
+    void selectBestMatchPicksHighestReleaseWithinAPartialVersion() {
+        List<Semver> releases = List.of(
+                Semver.parse("0.67.0"),
+                Semver.parse("0.67.16"),
+                Semver.parse("0.67.5"),
+                Semver.parse("0.68.0"),
+                Semver.parse("0.66.9"));
+
+        assertEquals("0.67.16", resolver.selectBestMatch(releases, "0.67"));
+    }
+
+    @Test
+    void selectBestMatchHonorsRangeConstraints() {
+        List<Semver> releases = List.of(
+                Semver.parse("0.55.0"),
+                Semver.parse("0.60.0"),
+                Semver.parse("0.65.9"),
+                Semver.parse("0.70.0"));
+
+        assertEquals("0.65.9", resolver.selectBestMatch(releases, ">=0.60.0 <0.70.0"));
+    }
+
+    @Test
+    void selectBestMatchThrowsClearlyWhenNothingSatisfiesTheConstraint() {
+        List<Semver> releases = List.of(Semver.parse("0.55.0"), Semver.parse("0.60.0"));
+
+        IllegalArgumentException exception = assertThrows(IllegalArgumentException.class,
+                () -> resolver.selectBestMatch(releases, "9.9"));
+        assertTrue(exception.getMessage().contains("9.9"));
     }
 
     @Test
