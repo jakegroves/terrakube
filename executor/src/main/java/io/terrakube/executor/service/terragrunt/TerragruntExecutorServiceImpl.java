@@ -451,8 +451,15 @@ public class TerragruntExecutorServiceImpl implements TerraformExecutor {
         // whatever version ends up pinned/tested against a real terragrunt.hcl repo.
         processLauncher.setEnvironmentVariable("TG_TF_PATH", terraformBinary.getAbsolutePath());
         processLauncher.setEnvironmentVariable("TG_NON_INTERACTIVE", "true");
-        processLauncher.setOrAppendEnvironmentVariable("PATH", terraformBinary.getParentFile().getAbsolutePath(), File.pathSeparator);
-        processLauncher.setOrAppendEnvironmentVariable("PATH", terragruntBinary.getParentFile().getAbsolutePath(), File.pathSeparator);
+        // ProcessLauncher#setOrAppendEnvironmentVariable reads the real (JVM) process PATH on
+        // every call, not whatever a previous call already wrote into this ProcessBuilder's own
+        // environment map - calling it twice for the same key means the second call silently
+        // clobbers the first instead of chaining. Both directories must go in as one call.
+        processLauncher.setOrAppendEnvironmentVariable("PATH",
+                String.join(File.pathSeparator,
+                        terraformBinary.getParentFile().getAbsolutePath(),
+                        terragruntBinary.getParentFile().getAbsolutePath()),
+                File.pathSeparator);
 
         HashMap<String, String> environmentVariables = terraformJob.getEnvironmentVariables();
         if (environmentVariables != null) {

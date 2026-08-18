@@ -1,7 +1,9 @@
 package io.terrakube.executor.service.scripts.bash;
 
 import java.io.*;
+import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.List;
 import java.util.Map;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutorService;
@@ -73,15 +75,25 @@ public final class ProcessLauncher {
         } catch (IOException ex) {
             throw new RuntimeException(ex);
         }
+
+        // Stream readers run on separate submitted tasks from the exit-code wait below - without
+        // waiting for them here too, the returned future could resolve as soon as the process
+        // exits, before the reader tasks have finished draining stdout/stderr to EOF (a race that
+        // widens under thread-pool contention). A caller that reads its output/error buffers
+        // immediately after this future completes could then see a truncated capture.
+        List<CompletableFuture<Boolean>> streamReaders = new ArrayList<>();
         if (!this.inheritIO) {
             if (this.outputListener != null) {
-                this.executor.submit(() -> this.readProcessStream(this.process.getInputStream(), this.outputListener));
+                streamReaders.add(CompletableFuture.supplyAsync(
+                        () -> this.readProcessStream(this.process.getInputStream(), this.outputListener), this.executor));
             }
             if (this.errorListener != null) {
-                this.executor.submit(() -> this.readProcessStream(this.process.getErrorStream(), this.errorListener));
+                streamReaders.add(CompletableFuture.supplyAsync(
+                        () -> this.readProcessStream(this.process.getErrorStream(), this.errorListener), this.executor));
             }
         }
-        return CompletableFuture.supplyAsync(() -> {
+
+        CompletableFuture<Integer> exitCodeFuture = CompletableFuture.supplyAsync(() -> {
             try {
                 return this.process.waitFor();
             } catch (InterruptedException ex) {
@@ -89,6 +101,13 @@ public final class ProcessLauncher {
                 throw new RuntimeException(ex);
             }
         }, this.executor);
+
+        if (streamReaders.isEmpty()) {
+            return exitCodeFuture;
+        }
+
+        CompletableFuture<Void> allStreamsRead = CompletableFuture.allOf(streamReaders.toArray(new CompletableFuture[0]));
+        return exitCodeFuture.thenCombine(allStreamsRead, (exitCode, ignored) -> exitCode);
     }
 
     private boolean readProcessStream(InputStream stream, Consumer<String> listener) {

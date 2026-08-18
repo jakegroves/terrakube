@@ -124,12 +124,15 @@ class TerragruntExecutorServiceImplTest {
 
     @Test
     void runTerragruntWiresWorkingDirectoryEnvVarsAndCapturesStdout(@TempDir Path tempDir) throws Exception {
-        File terraformBinary = new File(tempDir.toFile(), "terraform");
+        // Deliberately different directories from each other (and from the working directory
+        // passed to runTerragrunt below) - a real regression test for the PATH-clobbering bug
+        // needs the two binaries to NOT already share a parent directory.
+        File terraformBinary = new File(tempDir.toFile(), "tf-bin-dir/terraform");
         FileUtils.writeStringToFile(terraformBinary, "", java.nio.charset.Charset.defaultCharset());
 
-        File fakeTerragrunt = new File(tempDir.toFile(), "terragrunt.sh");
+        File fakeTerragrunt = new File(tempDir.toFile(), "tg-bin-dir/terragrunt.sh");
         FileUtils.writeStringToFile(fakeTerragrunt,
-                "#!/bin/sh\necho \"TF_PATH=$TG_TF_PATH\"\necho \"ARGS=$@\"\nexit 0\n",
+                "#!/bin/sh\necho \"TF_PATH=$TG_TF_PATH\"\necho \"ARGS=$@\"\necho \"PROC_PATH=$PATH\"\nexit 0\n",
                 java.nio.charset.Charset.defaultCharset());
         fakeTerragrunt.setExecutable(true);
 
@@ -145,6 +148,16 @@ class TerragruntExecutorServiceImplTest {
         assertEquals(0, exitCode);
         assertTrue(output.toString().contains("TF_PATH=" + terraformBinary.getAbsolutePath()));
         assertTrue(output.toString().contains("ARGS=plan -input=false"));
+        // Regression check: a prior bug called setOrAppendEnvironmentVariable("PATH", ...) twice
+        // (once for the terraform binary dir, once for the terragrunt binary dir), and the second
+        // call silently clobbered the first instead of chaining, since it reads the real process
+        // PATH rather than what the first call had already written - PATH ended up missing the
+        // terraform binary directory entirely, and terragrunt failed with
+        // `exec: "terraform": executable file not found in $PATH`.
+        assertTrue(output.toString().contains(terraformBinary.getParentFile().getAbsolutePath()),
+                "PATH must include the terraform binary directory: " + output);
+        assertTrue(output.toString().contains(fakeTerragrunt.getParentFile().getAbsolutePath()),
+                "PATH must also include the terragrunt binary directory: " + output);
 
         File tfvarsFile = new File(tempDir.toFile(), "terrakube.auto.tfvars.json");
         assertTrue(tfvarsFile.exists(), "runTerragrunt should write an auto.tfvars.json file for the job's variables");
