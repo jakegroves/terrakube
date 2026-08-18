@@ -179,6 +179,42 @@ class TerragruntExecutorServiceImplTest {
         assertTrue(tempDir.toFile().listFiles() == null || tempDir.toFile().listFiles().length == 0);
     }
 
+    @SuppressWarnings("unchecked")
+    private boolean invokeHasRealChanges(List<java.util.Map<String, Object>> changes) throws Exception {
+        Method method = TerragruntExecutorServiceImpl.class.getDeclaredMethod("hasRealChanges", List.class);
+        method.setAccessible(true);
+        return (boolean) method.invoke(subject, changes);
+    }
+
+    private java.util.Map<String, Object> changeWithAction(String action) {
+        java.util.Map<String, Object> change = new java.util.HashMap<>();
+        change.put("address", "random_pet.this");
+        if (action != null) {
+            change.put("action", action);
+        }
+        return change;
+    }
+
+    @Test
+    void hasRealChangesIsFalseWhenEveryChangeIsNoOpOrRead() throws Exception {
+        assertEquals(false, invokeHasRealChanges(List.of()));
+        assertEquals(false, invokeHasRealChanges(List.of(changeWithAction("no-op"))));
+        assertEquals(false, invokeHasRealChanges(List.of(changeWithAction("read"), changeWithAction("no-op"))));
+        assertEquals(false, invokeHasRealChanges(List.of(changeWithAction(null))));
+    }
+
+    @Test
+    void hasRealChangesIsTrueWhenAnyChangeIsARealAction() throws Exception {
+        // This is the regression case for the bug reported against a real terragrunt deployment:
+        // `terragrunt plan` without -detailed-exitcode (or one that doesn't propagate it reliably)
+        // returns exit code 0 even when there IS a real change (e.g. creating a resource), which
+        // previously made UpdateJobStatusImpl mark the whole job "completed" and skip Apply
+        // entirely - the Apply step then showed as "notExecuted" in the UI.
+        assertEquals(true, invokeHasRealChanges(List.of(changeWithAction("create"))));
+        assertEquals(true, invokeHasRealChanges(List.of(changeWithAction("no-op"), changeWithAction("update"))));
+        assertEquals(true, invokeHasRealChanges(List.of(changeWithAction("delete"))));
+    }
+
     private File invokeResolveTerraformExecutionDir(File workingDir) throws Exception {
         Method method = TerragruntExecutorServiceImpl.class.getDeclaredMethod("resolveTerraformExecutionDir", File.class);
         method.setAccessible(true);

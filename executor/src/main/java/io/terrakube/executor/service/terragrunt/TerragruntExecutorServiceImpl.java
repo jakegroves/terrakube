@@ -148,7 +148,7 @@ public class TerragruntExecutorServiceImpl implements TerraformExecutor {
 
                     File planFile = new File(terraformWorkingDir, PLAN_FILE_NAME);
                     List<String> args = new ArrayList<>(List.of("plan", "-input=false", "-json",
-                            "-out=" + planFile.getAbsolutePath()));
+                            "-detailed-exitcode", "-out=" + planFile.getAbsolutePath()));
                     if (isDestroy) {
                         args.add("-destroy");
                     }
@@ -157,6 +157,24 @@ public class TerragruntExecutorServiceImpl implements TerraformExecutor {
                     List<Map<String, Object>> jobDiagnostics = new ArrayList<>();
                     exitCode = runTerragruntJson(terraformJob, terraformWorkingDir, args, planOutput,
                             liveChanges, jobDiagnostics, "plan");
+
+                    // terraform's -detailed-exitcode contract is 0=no changes, 1=error,
+                    // 2=changes present - UpdateJobStatusImpl.updateJobStatus relies on exactly
+                    // this to decide whether the job needs an apply step or is already "completed"
+                    // (0 skips apply entirely). Terragrunt has a documented history of not
+                    // reliably propagating detailed exit codes from the terraform child process it
+                    // wraps (see e.g. gruntwork-io/terragrunt#1516-style reports across versions),
+                    // so don't trust exitCode==0 alone: cross-check the JSON stream we already
+                    // parsed. If it actually saw a real (non no-op, non-read) planned change,
+                    // treat this as a "changes present" plan regardless of what terragrunt itself
+                    // returned - otherwise a real diff silently reports as "0 changes", the job
+                    // marks itself completed, and Apply never runs (surfaces in the UI as the
+                    // Apply step showing "notExecuted").
+                    if (exitCode == 0 && hasRealChanges(liveChanges)) {
+                        log.warn("terragrunt plan exited 0 but the JSON stream shows real changes; "
+                                + "treating as detailed-exitcode 2 for job {} step {}", terraformJob.getJobId(), terraformJob.getStepId());
+                        exitCode = 2;
+                    }
 
                     terraformJob.setLiveChanges(liveChanges);
                     terraformJob.setJobDiagnostics(jobDiagnostics);
@@ -197,6 +215,17 @@ public class TerragruntExecutorServiceImpl implements TerraformExecutor {
             result.setExitCode(1);
         }
         return result;
+    }
+
+    /** True if the parsed plan JSON stream contains at least one resource change that actually needs an apply. */
+    private boolean hasRealChanges(List<Map<String, Object>> liveChanges) {
+        for (Map<String, Object> change : liveChanges) {
+            Object action = change.get("action");
+            if (action != null && !"no-op".equals(action) && !"read".equals(action)) {
+                return true;
+            }
+        }
+        return false;
     }
 
     @Override
