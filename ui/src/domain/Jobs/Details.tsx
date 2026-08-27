@@ -38,6 +38,13 @@ const INCOMPLETE_VARIABLE_GUARD_STEP_NAME = "Incomplete sensitive variables";
 
 const UI_TYPE_STORAGE_KEY = "terrakube.jobDetails.uiType";
 
+// Archived console output and the structured-output context are both served from S3 via the API.
+// An intermittently slow S3 request (or an SDK retry) must not keep the whole page spinning, so
+// every auxiliary request is time-bound and its failure degrades to a per-step fallback.
+const AUX_REQUEST_TIMEOUT_MS = 15000;
+const LOG_LOADING_PLACEHOLDER = "Loading logs...";
+const LOG_UNAVAILABLE_FALLBACK = "No logs available";
+
 const getStoredUIType = (): "structured" | "console" => {
   try {
     return localStorage.getItem(UI_TYPE_STORAGE_KEY) === "console" ? "console" : "structured";
@@ -109,7 +116,6 @@ export const DetailsJob = ({ jobId }: Props) => {
   const jobRequestRef = useRef(0);
   const cachedStepLogs = useRef<Map<string, any>>(new Map());
   const contextRequestRef = useRef(0);
-  const pollRequestRef = useRef(0);
 
   const isAbortError = (error: unknown) => {
     return error instanceof Error && (error.name === "AbortError" || error.name === "CanceledError");
@@ -160,20 +166,28 @@ export const DetailsJob = ({ jobId }: Props) => {
     return stepName === INCOMPLETE_VARIABLE_GUARD_STEP_NAME;
   };
 
+  // Synchronous placeholder shown for a completed step while its archived log is still loading in
+  // the background. Steps with no output URL keep their historical "waiting"/"initializing" copy.
+  const initialStepLog = (output: string | undefined, status: string) => {
+    if (output != null) return LOG_LOADING_PLACEHOLDER;
+    if (status === "running") return "Initializing the backend...";
+    return "Waiting logs...";
+  };
+
   const outputLog = async (output: string | undefined, status: string, signal: AbortSignal) => {
     if (output != null) {
       const outputUrl = getJobOutputRequestUrl(output);
 
       try {
         if (isTerrakubeApiUrl(outputUrl)) {
-          const response = await axiosInstance.get(outputUrl, { signal });
+          const response = await axiosInstance.get(outputUrl, { signal, timeout: AUX_REQUEST_TIMEOUT_MS });
           return response.data;
         }
 
-        const response = await axiosClient.get(outputUrl, { signal });
+        const response = await axiosClient.get(outputUrl, { signal, timeout: AUX_REQUEST_TIMEOUT_MS });
         return response.data;
       } catch {
-        return "No logs available";
+        return LOG_UNAVAILABLE_FALLBACK;
       }
     } else {
       if (status === "running") return "Initializing the backend...";
@@ -440,80 +454,108 @@ export const DetailsJob = ({ jobId }: Props) => {
       );
       const incompleteVariableGuard = parseIncompleteVariableGuard(response.data.data.attributes.output);
 
-      const fetchStepLog = async (stepItem: any) => {
-        const cached = cachedStepLogs.current.get(stepItem.id);
-        if (cached !== undefined) return cached;
-        const log = await outputLog(stepItem.attributes.output, stepItem.attributes.status, signal);
-        if (TERMINAL_STEP_STATUSES.has(stepItem.attributes.status) && !signal.aborted && log !== "No logs available") {
-          cachedStepLogs.current.set(stepItem.id, log);
+      // Step metadata is available right now from the job response - render it immediately with a
+      // placeholder for any archived log, and stop showing "Loading Job...". Archived logs and the
+      // structured-output context (both S3-backed, both potentially slow) hydrate in the background
+      // below and must never gate this first paint.
+      const stepLogFallback = (stepItem: any) => {
+        if (incompleteVariableGuard != null && isIncompleteVariableGuardStep(stepItem.attributes.name)) {
+          return incompleteVariableGuard.rawMessage;
         }
-        return log;
+        if (stepItem.attributes.status === "running") {
+          return "";
+        }
+        return (
+          cachedStepLogs.current.get(stepItem.id) ??
+          initialStepLog(stepItem.attributes.output, stepItem.attributes.status)
+        );
       };
 
-      const stepsPromise = Promise.all(
-        stepEntries.map(async (stepItem: any) => ({
+      const baseSteps: JobStep[] = stepEntries
+        .map((stepItem: any) => ({
           id: stepItem.id,
           stepNumber: stepItem.attributes.stepNumber,
           status: stepItem.attributes.status,
           output: stepItem.attributes.output,
           name: stepItem.attributes.name,
-          outputLog:
-            incompleteVariableGuard != null && isIncompleteVariableGuardStep(stepItem.attributes.name)
-              ? incompleteVariableGuard.rawMessage
-              : stepItem.attributes.status === "running"
-              ? ""
-              : await fetchStepLog(stepItem),
+          outputLog: stepLogFallback(stepItem),
         }))
+        .sort(sortbyName);
+
+      setSteps((previous) => {
+        const previousById = new Map(previous.map((step) => [step.id, step]));
+        return baseSteps.map((step) => {
+          const prior = previousById.get(step.id);
+          // Keep an already-resolved log across polls so a completed step doesn't flash back to the
+          // placeholder every 5s while a re-fetch is in flight.
+          if (
+            prior &&
+            prior.status === step.status &&
+            prior.outputLog !== LOG_LOADING_PLACEHOLDER &&
+            prior.outputLog !== ""
+          ) {
+            return { ...step, outputLog: prior.outputLog };
+          }
+          return step;
+        });
+      });
+      setLoading(false);
+
+      // Background: fetch each completed step's archived console output. A failed or timed-out
+      // request degrades that one step to LOG_UNAVAILABLE_FALLBACK; it never blocks the page.
+      void Promise.all(
+        stepEntries.map(async (stepItem: any) => {
+          const { id, attributes } = stepItem;
+          if (incompleteVariableGuard != null && isIncompleteVariableGuardStep(attributes.name)) return;
+          if (attributes.status === "running" || attributes.output == null) return;
+          if (cachedStepLogs.current.get(id) !== undefined) return;
+
+          const log = await outputLog(attributes.output, attributes.status, signal);
+          if (signal.aborted || requestId !== jobRequestRef.current) return;
+
+          if (TERMINAL_STEP_STATUSES.has(attributes.status) && log !== LOG_UNAVAILABLE_FALLBACK) {
+            cachedStepLogs.current.set(id, log);
+          }
+
+          setSteps((previous) =>
+            previous.map((step) => (step.id === id ? { ...step, outputLog: log } : step))
+          );
+        })
       );
 
-      const workspacePromise = workspaceEntry
-        ? (async () => {
-            const workspaceResponse = await axiosInstance.get(
-              `organization/${organizationId}/workspace/${workspaceEntry.id}`,
-              { signal }
-            );
-            const vcsId = workspaceResponse.data.data.relationships.vcs.data?.id;
+      // Background: workspace source / VCS metadata for the job info panel.
+      void (async () => {
+        try {
+          if (!workspaceEntry) {
+            if (requestId !== jobRequestRef.current) return;
+            setWorkspaceSource(undefined);
+            setWorkspaceDefaultBranch(undefined);
+            setWorkspaceVcsId(undefined);
+            setWorkspaceVcsName(undefined);
+            return;
+          }
 
-            if (!vcsId) {
-              return {
-                source: workspaceEntry.attributes.source,
-                branch: workspaceEntry.attributes.branch,
-                vcsId: undefined,
-                vcsName: undefined,
-              };
-            }
+          const workspaceResponse = await axiosInstance.get(
+            `organization/${organizationId}/workspace/${workspaceEntry.id}`,
+            { signal }
+          );
+          const vcsId = workspaceResponse.data.data.relationships.vcs.data?.id;
+          const vcsName = vcsId
+            ? (
+                await axiosInstance.get(`organization/${organizationId}/vcs/${vcsId}`, { signal })
+              ).data.data.attributes.name
+            : undefined;
 
-            const vcsDataResponse = await axiosInstance.get(`organization/${organizationId}/vcs/${vcsId}`, {
-              signal,
-            });
+          if (signal.aborted || requestId !== jobRequestRef.current) return;
 
-            return {
-              source: workspaceEntry.attributes.source,
-              branch: workspaceEntry.attributes.branch,
-              vcsId,
-              vcsName: vcsDataResponse.data.data.attributes.name,
-            };
-          })()
-        : Promise.resolve(undefined);
-
-      const [jobSteps, workspaceData] = await Promise.all([stepsPromise, workspacePromise]);
-      if (requestId !== jobRequestRef.current) {
-        return;
-      }
-
-      if (workspaceData) {
-        setWorkspaceSource(workspaceData.source);
-        setWorkspaceDefaultBranch(workspaceData.branch);
-        setWorkspaceVcsId(workspaceData.vcsId);
-        setWorkspaceVcsName(workspaceData.vcsName);
-      } else {
-        setWorkspaceSource(undefined);
-        setWorkspaceDefaultBranch(undefined);
-        setWorkspaceVcsId(undefined);
-        setWorkspaceVcsName(undefined);
-      }
-
-      setSteps(jobSteps.sort(sortbyName));
+          setWorkspaceSource(workspaceEntry.attributes.source);
+          setWorkspaceDefaultBranch(workspaceEntry.attributes.branch);
+          setWorkspaceVcsId(vcsId ?? undefined);
+          setWorkspaceVcsName(vcsName);
+        } catch (error) {
+          if (isAbortError(error)) return;
+        }
+      })();
     } catch (error) {
       if (isAbortError(error)) return;
     }
@@ -525,7 +567,10 @@ export const DetailsJob = ({ jobId }: Props) => {
     const apiOrigin = getPublicApiOrigin();
 
     try {
-      const response = await axiosInstance.get(`${apiOrigin}/context/v1/${jobId}`, { signal });
+      const response = await axiosInstance.get(`${apiOrigin}/context/v1/${jobId}`, {
+        signal,
+        timeout: AUX_REQUEST_TIMEOUT_MS,
+      });
       if (requestId !== contextRequestRef.current) {
         return;
       }
@@ -543,12 +588,12 @@ export const DetailsJob = ({ jobId }: Props) => {
     }
   }, [getContextSignal, jobId]);
 
-  const refreshJobDetails = useCallback(async () => {
-    const requestId = ++pollRequestRef.current;
-    await Promise.all([loadJob(), loadContext()]);
-    if (requestId === pollRequestRef.current) {
-      setLoading(false);
-    }
+  const refreshJobDetails = useCallback(() => {
+    // loadJob clears the "Loading Job..." spinner as soon as job + step metadata is in hand.
+    // loadContext runs alongside it and is deliberately not awaited here - a slow or failed
+    // context request must not delay the first paint.
+    void loadJob();
+    void loadContext();
   }, [loadContext, loadJob]);
 
   useEffect(() => {
@@ -562,12 +607,12 @@ export const DetailsJob = ({ jobId }: Props) => {
       return;
     }
 
-    void refreshJobDetails();
+    refreshJobDetails();
   }, [abortContextRequests, abortJobRequests, jobId, refreshJobDetails]);
 
   usePolling(
     () => {
-      void refreshJobDetails();
+      refreshJobDetails();
     },
     {
       interval: 5000,

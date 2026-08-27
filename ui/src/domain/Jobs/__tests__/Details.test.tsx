@@ -162,6 +162,94 @@ describe("DetailsJob apply structured output", () => {
   });
 });
 
+describe("DetailsJob S3 / auxiliary-request resilience", () => {
+  beforeEach(() => {
+    useStructuredOutputStreamMock.mockReturnValue(null);
+  });
+
+  it("renders job and step metadata even while the archived-log request never resolves", async () => {
+    getMock.mockImplementation((url: string) => {
+      if (url.includes("/context/v1/")) {
+        return Promise.resolve({ data: {} });
+      }
+
+      if (url.includes("/tfoutput/")) {
+        // Stuck S3-backed log request - must not gate the page.
+        return new Promise(() => {});
+      }
+
+      return Promise.resolve({
+        data: {
+          data: {
+            id: "1",
+            attributes: { status: "completed" },
+          },
+          included: [
+            {
+              id: "step-1",
+              type: "step",
+              attributes: {
+                name: "Plan",
+                status: "completed",
+                stepNumber: "1",
+                output: "http://localhost:8080/tfoutput/v1/step-1.log",
+              },
+            },
+          ],
+        },
+      });
+    });
+
+    render(<DetailsJob jobId="1" />);
+
+    await waitFor(() => {
+      expect(screen.getByText("Triggered via UI")).toBeInTheDocument();
+    });
+
+    expect(screen.queryByText("Loading Job...")).not.toBeInTheDocument();
+    expect(screen.getByText(/Loading logs/i)).toBeInTheDocument();
+  });
+
+  it("falls back to 'No logs available' when the archived-log request fails", async () => {
+    getMock.mockImplementation((url: string) => {
+      if (url.includes("/context/v1/")) {
+        return Promise.resolve({ data: {} });
+      }
+
+      if (url.includes("/tfoutput/")) {
+        return Promise.reject(new Error("S3 unavailable"));
+      }
+
+      return Promise.resolve({
+        data: {
+          data: {
+            id: "1",
+            attributes: { status: "completed" },
+          },
+          included: [
+            {
+              id: "step-1",
+              type: "step",
+              attributes: {
+                name: "Plan",
+                status: "completed",
+                stepNumber: "1",
+                output: "http://localhost:8080/tfoutput/v1/step-1.log",
+              },
+            },
+          ],
+        },
+      });
+    });
+
+    render(<DetailsJob jobId="1" />);
+
+    await waitFor(() => {
+      expect(screen.getByText("No logs available")).toBeInTheDocument();
+    });
+  });
+});
+
 describe("DetailsJob SSE reconnect behavior", () => {
   beforeEach(() => {
     useStructuredOutputStreamMock.mockReset();
