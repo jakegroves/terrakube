@@ -9,6 +9,10 @@ import { getUiRedirectUri } from "./config/basePath";
 import App from "./domain/Home/App";
 import "./index.css";
 import reportWebVitals from "./reportWebVitals";
+import { initTelemetry } from "./telemetry";
+
+// Fire-and-forget: initTelemetry resolves immediately when disabled and never rejects.
+void initTelemetry();
 
 // Get the root element from the DOM
 const container = document.getElementById("root");
