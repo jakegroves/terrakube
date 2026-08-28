@@ -9908,6 +9908,13 @@ __metadata:
   languageName: node
   linkType: hard
 
+"module-details-from-path@npm:^1.0.3, module-details-from-path@npm:^1.0.4":
+  version: 1.0.4
+  resolution: "module-details-from-path@npm:1.0.4"
+  checksum: 10c0/10863413e96dab07dee917eae07afe46f7bf853065cc75a7d2a718adf67574857fb64f8a2c0c9af12ac733a9a8cf652db7ed39b95f7a355d08106cb9cc50c83b
+  languageName: node
+  linkType: hard
+
 "monaco-editor@npm:^0.56.0":
   version: 0.56.0
   resolution: "monaco-editor@npm:0.56.0"
@@ -9915,13 +9922,6 @@ __metadata:
     dompurify: "npm:3.4.8"
     marked: "npm:14.0.0"
   checksum: 10c0/8ed728880042c5a1f42040f955e017b798fc1602fc59ef7a1f0e4da8f354e928b32cc0dba93ff677c538a37a542be3898210f9d1801f339e3c0f65f9ad3dc73e
-  languageName: node
-  linkType: hard
-
-"module-details-from-path@npm:^1.0.3, module-details-from-path@npm:^1.0.4":
-  version: 1.0.4
-  resolution: "module-details-from-path@npm:1.0.4"
-  checksum: 10c0/10863413e96dab07dee917eae07afe46f7bf853065cc75a7d2a718adf67574857fb64f8a2c0c9af12ac733a9a8cf652db7ed39b95f7a355d08106cb9cc50c83b
   languageName: node
   linkType: hard
 

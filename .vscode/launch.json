@@ -51,6 +51,11 @@
             "preLaunchTask": "setup-env"
         },
         {
+            "name": "Terrakube + Observability",
+            "configurations": ["Run API", "Run Registry", "Run Executor", "Run UI"],
+            "preLaunchTask": "setup-env-observability"
+        },
+        {
             "name": "Terrakube Postgresql",
             "configurations": ["Run API", "Run Registry", "Run Executor", "Run UI"],
             "preLaunchTask": "setup-env2"
