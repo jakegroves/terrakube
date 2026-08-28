@@ -6,4 +6,8 @@ window._env_ = {
   REACT_APP_REGISTRY_URI: "http://terrakube-registry:8075",
   REACT_APP_SCOPE: "email openid profile offline_access groups",
   REACT_APP_TERRAKUBE_SEND_COOKIES: "false",
+  REACT_APP_OTEL_ENABLED: "true",
+  REACT_APP_OTEL_EXPORTER_OTLP_ENDPOINT: "http://localhost:4318/v1/traces",
+  REACT_APP_OTEL_TRACES_SAMPLE_RATE: "1",
+  REACT_APP_OTEL_SERVICE_NAME: "terrakube-ui",
 }
