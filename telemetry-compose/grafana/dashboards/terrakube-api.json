@@ -1,0 +1,142 @@
+{
+  "__inputs": [],
+  "annotations": { "list": [] },
+  "editable": true,
+  "graphTooltip": 1,
+  "schemaVersion": 39,
+  "tags": ["terrakube", "generic"],
+  "title": "Terrakube - API",
+  "uid": "terrakube-api",
+  "templating": {
+    "list": [
+      {
+        "name": "DS_PROMETHEUS",
+        "label": "Metrics source",
+        "type": "datasource",
+        "query": "prometheus",
+        "current": {},
+        "hide": 0
+      }
+    ]
+  },
+  "time": { "from": "now-3h", "to": "now" },
+  "panels": [
+    {
+      "type": "row", "title": "HTTP (RED)", "gridPos": { "h": 1, "w": 24, "x": 0, "y": 0 }, "collapsed": false, "panels": []
+    },
+    {
+      "type": "timeseries",
+      "title": "Request rate by route",
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "gridPos": { "h": 8, "w": 8, "x": 0, "y": 1 },
+      "fieldConfig": { "defaults": { "unit": "reqps" }, "overrides": [] },
+      "targets": [
+        { "expr": "sum by (uri, method) (rate(http_server_requests_seconds_count{service=\"terrakube-api\"}[5m]))", "legendFormat": "{{method}} {{uri}}", "refId": "A" }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "5xx error ratio",
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "gridPos": { "h": 8, "w": 8, "x": 8, "y": 1 },
+      "fieldConfig": { "defaults": { "unit": "percentunit", "max": 1 }, "overrides": [] },
+      "targets": [
+        { "expr": "sum(rate(http_server_requests_seconds_count{service=\"terrakube-api\", status=~\"5..\"}[5m])) / clamp_min(sum(rate(http_server_requests_seconds_count{service=\"terrakube-api\"}[5m])), 1)", "legendFormat": "5xx ratio", "refId": "A" }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "p95 latency by route",
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "gridPos": { "h": 8, "w": 8, "x": 16, "y": 1 },
+      "fieldConfig": { "defaults": { "unit": "s" }, "overrides": [] },
+      "targets": [
+        { "expr": "histogram_quantile(0.95, sum by (le, uri) (rate(http_server_requests_seconds_bucket{service=\"terrakube-api\"}[5m])))", "legendFormat": "{{uri}}", "refId": "A" }
+      ]
+    },
+    {
+      "type": "row", "title": "Database pool (Hikari)", "gridPos": { "h": 1, "w": 24, "x": 0, "y": 9 }, "collapsed": false, "panels": []
+    },
+    {
+      "type": "timeseries",
+      "title": "Connections pending (waiters)",
+      "description": "Threads blocked waiting for a DB connection. > 0 for a sustained period means the pool is exhausted.",
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "gridPos": { "h": 8, "w": 8, "x": 0, "y": 10 },
+      "targets": [
+        { "expr": "hikaricp_connections_pending{service=\"terrakube-api\"}", "legendFormat": "pending", "refId": "A" }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Connection acquire time (max)",
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "gridPos": { "h": 8, "w": 8, "x": 8, "y": 10 },
+      "fieldConfig": { "defaults": { "unit": "s" }, "overrides": [] },
+      "targets": [
+        { "expr": "hikaricp_connections_acquire_seconds_max{service=\"terrakube-api\"}", "legendFormat": "acquire max", "refId": "A" }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Active / idle connections",
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "gridPos": { "h": 8, "w": 8, "x": 16, "y": 10 },
+      "targets": [
+        { "expr": "hikaricp_connections_active{service=\"terrakube-api\"}", "legendFormat": "active", "refId": "A" },
+        { "expr": "hikaricp_connections_idle{service=\"terrakube-api\"}", "legendFormat": "idle", "refId": "B" }
+      ]
+    },
+    {
+      "type": "row", "title": "Jobs & queues", "gridPos": { "h": 1, "w": 24, "x": 0, "y": 18 }, "collapsed": false, "panels": []
+    },
+    {
+      "type": "timeseries",
+      "title": "Job status entries / min",
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "gridPos": { "h": 8, "w": 8, "x": 0, "y": 19 },
+      "targets": [
+        { "expr": "sum by (to) (rate(terrakube_job_transitions_total[5m])) * 60", "legendFormat": "{{to}}", "refId": "A" }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Job queue wait p95",
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "gridPos": { "h": 8, "w": 8, "x": 8, "y": 19 },
+      "fieldConfig": { "defaults": { "unit": "s" }, "overrides": [] },
+      "targets": [
+        { "expr": "histogram_quantile(0.95, sum by (le) (rate(terrakube_job_queue_wait_seconds_bucket[10m])))", "legendFormat": "p95", "refId": "A" }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Webhook delivery queue depth / oldest age",
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "gridPos": { "h": 8, "w": 8, "x": 16, "y": 19 },
+      "targets": [
+        { "expr": "webhook_delivery_queue_depth", "legendFormat": "depth", "refId": "A" },
+        { "expr": "webhook_delivery_queue_oldest_age_seconds", "legendFormat": "oldest age (s)", "refId": "B" }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Quartz jobs executing / fanout queue",
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 27 },
+      "targets": [
+        { "expr": "quartz_jobs_executing", "legendFormat": "quartz executing", "refId": "A" },
+        { "expr": "webhook_workspace_fanout_queue_depth", "legendFormat": "fanout queue", "refId": "B" }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Active workspaces",
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 27 },
+      "targets": [
+        { "expr": "terrakube_workspace_active", "legendFormat": "workspaces", "refId": "A" }
+      ]
+    }
+  ]
+}

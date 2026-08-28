@@ -1,0 +1,82 @@
+{
+  "__inputs": [],
+  "annotations": { "list": [] },
+  "editable": true,
+  "graphTooltip": 1,
+  "schemaVersion": 39,
+  "tags": ["terrakube", "generic"],
+  "title": "Terrakube - Executor",
+  "uid": "terrakube-executor",
+  "templating": {
+    "list": [
+      {
+        "name": "DS_PROMETHEUS",
+        "label": "Metrics source",
+        "type": "datasource",
+        "query": "prometheus",
+        "current": {},
+        "hide": 0
+      }
+    ]
+  },
+  "time": { "from": "now-6h", "to": "now" },
+  "panels": [
+    {
+      "type": "timeseries",
+      "title": "Concurrent jobs (sum across pods)",
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 0 },
+      "targets": [
+        { "expr": "sum(terrakube_job_concurrent)", "legendFormat": "running", "refId": "A" }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Executor heap used (container working-set is cluster-only)",
+      "description": "Locally only JVM heap is available. On Kubernetes overlay container_memory_working_set_bytes here to see the OOM correlation against concurrency.",
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 0 },
+      "fieldConfig": { "defaults": { "unit": "bytes" }, "overrides": [] },
+      "targets": [
+        { "expr": "sum(jvm_memory_used_bytes{service=\"terrakube-executor\", area=\"heap\"})", "legendFormat": "heap used", "refId": "A" }
+      ]
+    },
+    {
+      "type": "heatmap",
+      "title": "Job execution duration by step",
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "gridPos": { "h": 9, "w": 12, "x": 0, "y": 8 },
+      "targets": [
+        { "expr": "sum by (le) (rate(terrakube_job_execution_seconds_bucket[10m]))", "format": "heatmap", "legendFormat": "{{le}}", "refId": "A" }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Job execution p95 by step",
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "gridPos": { "h": 9, "w": 12, "x": 12, "y": 8 },
+      "fieldConfig": { "defaults": { "unit": "s" }, "overrides": [] },
+      "targets": [
+        { "expr": "histogram_quantile(0.95, sum by (le, step, tool) (rate(terrakube_job_execution_seconds_bucket[10m])))", "legendFormat": "{{tool}} {{step}}", "refId": "A" }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Subprocess exit outcomes / min",
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 17 },
+      "targets": [
+        { "expr": "sum by (exit_code_class, tool) (rate(terrakube_job_exit_total[15m])) * 60", "legendFormat": "{{tool}} {{exit_code_class}}", "refId": "A" }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Job phases completed / min by result",
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 17 },
+      "targets": [
+        { "expr": "sum by (result) (rate(terrakube_job_execution_seconds_count[15m])) * 60", "legendFormat": "{{result}}", "refId": "A" }
+      ]
+    }
+  ]
+}
