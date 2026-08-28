@@ -11,6 +11,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.support.TransactionSynchronization;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
 
+import io.terrakube.api.plugin.metrics.JobLifecycleMetrics;
 import io.terrakube.api.plugin.notification.payload.NotificationContext;
 import io.terrakube.api.plugin.notification.payload.NotificationPayloadRenderer;
 import io.terrakube.api.rs.job.Job;
@@ -57,6 +58,7 @@ public class JobNotificationTrigger {
     private final NotificationOutboxRepository notificationOutboxRepository;
     private final NotificationDispatchService notificationDispatchService;
     private final JobFailureSummaryService jobFailureSummaryService;
+    private final JobLifecycleMetrics jobLifecycleMetrics;
 
     @Value("${io.terrakube.ui.url:}")
     private String uiUrl;
@@ -72,12 +74,14 @@ public class JobNotificationTrigger {
             NotificationPayloadRenderer notificationPayloadRenderer,
             NotificationOutboxRepository notificationOutboxRepository,
             NotificationDispatchService notificationDispatchService,
-            JobFailureSummaryService jobFailureSummaryService) {
+            JobFailureSummaryService jobFailureSummaryService,
+            JobLifecycleMetrics jobLifecycleMetrics) {
         this.notificationConfigResolver = notificationConfigResolver;
         this.notificationPayloadRenderer = notificationPayloadRenderer;
         this.notificationOutboxRepository = notificationOutboxRepository;
         this.notificationDispatchService = notificationDispatchService;
         this.jobFailureSummaryService = jobFailureSummaryService;
+        this.jobLifecycleMetrics = jobLifecycleMetrics;
     }
 
     // Returns the ids of rows that are due for immediate dispatch. A row rendered for a
@@ -144,6 +148,11 @@ public class JobNotificationTrigger {
     }
 
     public void notifyStatusChanged(Job job) {
+        // Every real status transition on the primary path funnels through here - it is the closest
+        // thing api has to a job state-machine event, so metrics are recorded before the
+        // notification-config early-return below.
+        jobLifecycleMetrics.recordStatus(job);
+
         List<UUID> outboxIds = enqueue(job);
         if (outboxIds.isEmpty()) {
             return;

@@ -43,6 +43,7 @@ class JobNotificationTriggerTest {
     NotificationDispatchService notificationDispatchService;
     @Mock
     JobFailureSummaryService jobFailureSummaryService;
+    io.terrakube.api.plugin.metrics.JobLifecycleMetrics jobLifecycleMetrics;
 
     @InjectMocks
     JobNotificationTrigger subject;
