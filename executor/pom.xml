@@ -86,6 +86,18 @@
 			<artifactId>micrometer-registry-prometheus</artifactId>
 		</dependency>
 		<dependency>
+			<!-- Trace API only. The OpenTelemetry Java agent (Paketo buildpack) supplies the SDK
+			     implementation at runtime; GlobalOpenTelemetry.get() resolves to it. -->
+			<groupId>io.opentelemetry</groupId>
+			<artifactId>opentelemetry-api</artifactId>
+			<scope>provided</scope>
+		</dependency>
+		<dependency>
+			<groupId>io.opentelemetry</groupId>
+			<artifactId>opentelemetry-sdk-testing</artifactId>
+			<scope>test</scope>
+		</dependency>
+		<dependency>
 			<groupId>io.terrakube.terraform</groupId>
 			<artifactId>terraform-spring-boot-starter</artifactId>
 			<version>${terraform-spring-boot-starter.version}</version>

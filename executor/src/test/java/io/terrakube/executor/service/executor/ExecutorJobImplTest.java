@@ -48,12 +48,19 @@ class ExecutorJobImplTest {
     private final JobExecutionWatchdog jobExecutionWatchdog = Mockito.mock(JobExecutionWatchdog.class);
     private final ExecutorCapacityGate executorCapacityGate = Mockito.mock(ExecutorCapacityGate.class);
     private final RedisTemplate<String, Object> redisTemplate = Mockito.mock(RedisTemplate.class);
+    private final io.micrometer.core.instrument.simple.SimpleMeterRegistry meterRegistry =
+            new io.micrometer.core.instrument.simple.SimpleMeterRegistry();
+    private final io.terrakube.executor.service.metrics.ExecutorJobMetrics executorJobMetrics =
+            new io.terrakube.executor.service.metrics.ExecutorJobMetrics(meterRegistry, jobExecutionWatchdog);
+    private final io.terrakube.executor.service.metrics.JobTelemetry jobTelemetry =
+            new io.terrakube.executor.service.metrics.JobTelemetry(io.opentelemetry.api.OpenTelemetry.noop());
     private final List<Object> publishedEvents = new ArrayList<>();
     private final ApplicationEventPublisher eventPublisher = publishedEvents::add;
 
     private ExecutorJobImpl subject(ApplicationEventPublisher publisher) {
         return new ExecutorJobImpl(setupWorkspace, terraformExecutor, updateJobStatus, executorFlagsProperties,
-                shutdownService, scriptEngineService, publisher, jobExecutionWatchdog, executorCapacityGate, redisTemplate);
+                shutdownService, scriptEngineService, publisher, jobExecutionWatchdog, executorCapacityGate, redisTemplate,
+                jobTelemetry, executorJobMetrics);
     }
 
     private TerraformJob createJob(String type) {
@@ -94,6 +101,23 @@ class ExecutorJobImplTest {
         inOrder.verify(updateJobStatus).setCompletedStatus(eq(true), anyBoolean(), anyInt(), eq(job), any(), any(), any(), any());
         inOrder.verify(jobExecutionWatchdog).markFree();
         inOrder.verify(executorCapacityGate).release();
+    }
+
+    @Test
+    void recordsExecutionDurationAndExitCodeForAPlanJob() throws Exception {
+        TerraformJob job = createJob("terraformPlan");
+        File workDir = tempDir.toFile();
+        when(setupWorkspace.prepareWorkspace(job)).thenReturn(workDir);
+        ExecutorJobResult result = new ExecutorJobResult();
+        result.setSuccessfulExecution(true);
+        when(terraformExecutor.plan(eq(job), eq(workDir), eq(false))).thenReturn(result);
+
+        subject(eventPublisher).createJob(job);
+
+        assertEquals(1L, meterRegistry.get("terrakube.job.execution")
+                .tags("tool", "terraform", "step", "plan", "result", "success").timer().count());
+        assertEquals(1.0, meterRegistry.get("terrakube.job.exit")
+                .tags("tool", "terraform", "exit_code_class", "ok").counter().count());
     }
 
     @Test

@@ -75,7 +75,10 @@ class AdmissionControlIntegrationTest {
         RedisTemplate<String, Object> redisTemplate = Mockito.mock(RedisTemplate.class);
         ExecutorJobImpl executorJobImpl = new ExecutorJobImpl(setupWorkspace, terraformExecutor, updateJobStatus,
                 new ExecutorFlagsProperties(), shutdownService, scriptEngineService, eventPublisher,
-                jobExecutionWatchdog, gate, redisTemplate);
+                jobExecutionWatchdog, gate, redisTemplate,
+                new io.terrakube.executor.service.metrics.JobTelemetry(io.opentelemetry.api.OpenTelemetry.noop()),
+                new io.terrakube.executor.service.metrics.ExecutorJobMetrics(
+                        new io.micrometer.core.instrument.simple.SimpleMeterRegistry(), jobExecutionWatchdog));
         OnlineModeServiceImpl controller = new OnlineModeServiceImpl(
                 new SubmittingExecutorJob(executorJobImpl, pool), gate, eventPublisher, null);
 
@@ -109,7 +112,12 @@ class AdmissionControlIntegrationTest {
         }
         gate.release();
 
-        // Third request after completion: pod accepts again.
+        // Third request after completion: pod accepts again. The gate is released inside
+        // createJob's finally block, but the single-thread pool (queueCapacity 0) can still
+        // transiently reject a submission for the few milliseconds between the worker finishing
+        // task 1 and re-parking on the queue - exactly the window OnlineModeServiceImpl's
+        // TaskRejectedException branch (503 -> API scheduler retry) exists to cover. Mirror that
+        // retry here rather than assert on a single racy attempt.
         TerraformJob thirdJob = new TerraformJob();
         thirdJob.setOrganizationId("org");
         thirdJob.setWorkspaceId("workspace-3");
@@ -118,6 +126,12 @@ class AdmissionControlIntegrationTest {
         thirdJob.setEnvironmentVariables(new java.util.HashMap<>());
         thirdJob.setVariables(new java.util.HashMap<>());
         ResponseEntity<TerraformJob> thirdResponse = controller.terraformJob(thirdJob);
+        deadline = System.currentTimeMillis() + 5000;
+        while (!thirdResponse.getStatusCode().equals(HttpStatus.ACCEPTED)
+                && System.currentTimeMillis() < deadline) {
+            Thread.sleep(20);
+            thirdResponse = controller.terraformJob(thirdJob);
+        }
         assertEquals(HttpStatus.ACCEPTED, thirdResponse.getStatusCode());
 
         pool.shutdown();
