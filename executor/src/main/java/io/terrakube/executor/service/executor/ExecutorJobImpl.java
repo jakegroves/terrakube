@@ -6,6 +6,8 @@ import org.apache.commons.io.FileUtils;
 import org.apache.commons.io.IOUtils;
 import org.apache.commons.text.TextStringBuilder;
 import io.terrakube.executor.configuration.ExecutorFlagsProperties;
+import io.terrakube.executor.service.metrics.ExecutorJobMetrics;
+import io.terrakube.executor.service.metrics.JobTelemetry;
 import io.terrakube.executor.service.mode.TerraformJob;
 import io.terrakube.executor.service.scripts.ScriptEngineService;
 import io.terrakube.executor.service.workspace.SetupWorkspace;
@@ -43,6 +45,8 @@ public class ExecutorJobImpl implements ExecutorJob {
     ExecutorCapacityGate executorCapacityGate;
     RedisTemplate<String, Object> redisTemplate;
     OpaExecutorService opaExecutorService;
+    JobTelemetry jobTelemetry;
+    ExecutorJobMetrics executorJobMetrics;
 
     public ExecutorJobImpl(
             SetupWorkspace setupWorkspace,
@@ -54,10 +58,12 @@ public class ExecutorJobImpl implements ExecutorJob {
             ApplicationEventPublisher eventPublisher,
             JobExecutionWatchdog jobExecutionWatchdog,
             ExecutorCapacityGate executorCapacityGate,
-            RedisTemplate<String, Object> redisTemplate) {
+            RedisTemplate<String, Object> redisTemplate,
+            JobTelemetry jobTelemetry,
+            ExecutorJobMetrics executorJobMetrics) {
         this(setupWorkspace, terraformExecutor, updateJobStatus, executorFlagsProperties,
                 shutdownService, scriptEngineService, eventPublisher, jobExecutionWatchdog,
-                executorCapacityGate, redisTemplate, null);
+                executorCapacityGate, redisTemplate, null, jobTelemetry, executorJobMetrics);
     }
 
     @Autowired
@@ -72,7 +78,9 @@ public class ExecutorJobImpl implements ExecutorJob {
             JobExecutionWatchdog jobExecutionWatchdog,
             ExecutorCapacityGate executorCapacityGate,
             RedisTemplate<String, Object> redisTemplate,
-            @Autowired(required = false) OpaExecutorService opaExecutorService) {
+            @Autowired(required = false) OpaExecutorService opaExecutorService,
+            JobTelemetry jobTelemetry,
+            ExecutorJobMetrics executorJobMetrics) {
         this.setupWorkspace = setupWorkspace;
         this.terraformExecutor = terraformExecutor;
         this.updateJobStatus = updateJobStatus;
@@ -84,6 +92,8 @@ public class ExecutorJobImpl implements ExecutorJob {
         this.executorCapacityGate = executorCapacityGate;
         this.redisTemplate = redisTemplate;
         this.opaExecutorService = opaExecutorService;
+        this.jobTelemetry = jobTelemetry;
+        this.executorJobMetrics = executorJobMetrics;
     }
 
     @Async
@@ -101,8 +111,12 @@ public class ExecutorJobImpl implements ExecutorJob {
                 updateJobStatus.setCompletedStatus(false, false, -1, terraformJob, "Failed to prepare work dir\n", e.getMessage(), null, "");
                 return;
             }
+            final File preparedWorkingDir = terraformWorkingDir;
             try {
-                executeJob(terraformJob, terraformWorkingDir);
+                // Span carries organization/workspace/job identifiers we deliberately keep OUT of
+                // metrics for cardinality reasons; aroundJob re-throws so the catch below still
+                // owns job-status bookkeeping.
+                jobTelemetry.aroundJob(terraformJob, () -> executeJob(terraformJob, preparedWorkingDir));
             } catch (Exception e) {
                 // executeJob has no throws clause of its own, so anything reaching here is an
                 // unexpected failure (e.g. the terraform/tofu binary download erroring out) deep
@@ -165,6 +179,16 @@ public class ExecutorJobImpl implements ExecutorJob {
 
         updateJobStatus.setRunningStatus(terraformJob, commitId);
 
+        String tool = terraformJob.isTofu() ? "tofu" : "terraform";
+        String step = switch (terraformJob.getType()) {
+            case "terraformPlan", "terraformPlanDestroy" -> "plan";
+            case "terraformApply" -> "apply";
+            case "terraformDestroy" -> "destroy";
+            case "customScripts", "approval" -> "script";
+            default -> "unknown";
+        };
+        io.micrometer.core.instrument.Timer.Sample executionSample = executorJobMetrics.startExecution();
+
         switch (terraformJob.getType()) {
             case "terraformPlanDestroy":
             case "terraformPlan":
@@ -211,6 +235,8 @@ public class ExecutorJobImpl implements ExecutorJob {
         }
 
         boolean executionSuccess = terraformResult.isSuccessfulExecution();
+        executorJobMetrics.stopExecution(executionSample, tool, step, executionSuccess);
+        executorJobMetrics.recordExit(tool, terraformResult.getExitCode());
         updateJobStatus.setCompletedStatus(executionSuccess, terraformResult.isPlan, terraformResult.getExitCode(), terraformJob, terraformResult.getOutputLog(), terraformResult.getOutputErrorLog(), terraformResult.getPlanFile(), commitId, terraformResult.isHasSoftMandatoryViolations(), terraformResult.getApprovalTeam());
     }
 

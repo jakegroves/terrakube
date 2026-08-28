@@ -58,6 +58,13 @@ public class JobExecutionWatchdog {
         refreshHeartbeat();
     }
 
+    // Exposed for the terrakube.job.concurrent gauge (ExecutorJobMetrics, different package). One
+    // job per pod (ExecutorCapacityGate), so this is 0 or 1; summed across pods it is cluster-wide
+    // active jobs.
+    public boolean isBusy() {
+        return busySince.get() != null;
+    }
+
     void markFree() {
         busySince.set(null);
         TerraformJob job = currentJob.getAndSet(null);
