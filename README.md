@@ -60,6 +60,8 @@ The key features of Terrakube are:
 ### Documentation
 To learn more about Terrakube [go to the complete documentation.](https://docs.terrakube.io/) 
 
+- [Observability signal catalog](docs/observability.md) — every metric, span and log field Terrakube emits, and how to wire it to any OTLP / Prometheus backend
+
 ### Contributing 
 Terrakube welcomes any idea or feedback from the community. If you want to contribute to this project, please read our [Contribution Guide](CONTRIBUTING.md) for more details.
 

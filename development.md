@@ -138,3 +138,8 @@ Finally you can go to GitHub and delete your codespace.
 
 
 
+
+## Observability
+
+* Local stack: `telemetry-compose/` runs Terrakube with an OpenTelemetry Collector + VictoriaMetrics + Tempo + VictoriaLogs + Grafana — see [telemetry-compose/README.md](telemetry-compose/README.md).
+* What Terrakube emits (metrics, spans, log fields) and how to point it at any backend: [docs/observability.md](docs/observability.md).
