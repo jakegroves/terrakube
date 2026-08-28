@@ -1,0 +1,77 @@
+{
+  "__inputs": [],
+  "annotations": { "list": [] },
+  "editable": true,
+  "graphTooltip": 1,
+  "schemaVersion": 39,
+  "tags": ["terrakube", "generic"],
+  "title": "Terrakube - JVM",
+  "uid": "terrakube-jvm",
+  "templating": {
+    "list": [
+      {
+        "name": "DS_PROMETHEUS",
+        "label": "Metrics source",
+        "type": "datasource",
+        "query": "prometheus",
+        "current": {},
+        "hide": 0
+      },
+      {
+        "name": "service",
+        "label": "Service",
+        "type": "query",
+        "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+        "query": "label_values(jvm_memory_used_bytes, service)",
+        "refresh": 2,
+        "includeAll": false,
+        "multi": false,
+        "current": {}
+      }
+    ]
+  },
+  "time": { "from": "now-1h", "to": "now" },
+  "panels": [
+    {
+      "type": "timeseries",
+      "title": "Heap used vs committed",
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 0 },
+      "fieldConfig": { "defaults": { "unit": "bytes" }, "overrides": [] },
+      "targets": [
+        { "expr": "sum(jvm_memory_used_bytes{service=\"$service\", area=\"heap\"})", "legendFormat": "used", "refId": "A" },
+        { "expr": "sum(jvm_memory_committed_bytes{service=\"$service\", area=\"heap\"})", "legendFormat": "committed", "refId": "B" }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "GC pause (avg over 5m)",
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 0 },
+      "fieldConfig": { "defaults": { "unit": "s" }, "overrides": [] },
+      "targets": [
+        { "expr": "sum(rate(jvm_gc_pause_seconds_sum{service=\"$service\"}[5m])) / clamp_min(sum(rate(jvm_gc_pause_seconds_count{service=\"$service\"}[5m])), 1)", "legendFormat": "gc pause", "refId": "A" }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Live threads",
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 8 },
+      "targets": [
+        { "expr": "jvm_threads_live_threads{service=\"$service\"}", "legendFormat": "live", "refId": "A" }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "CPU usage",
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 8 },
+      "fieldConfig": { "defaults": { "unit": "percentunit", "max": 1 }, "overrides": [] },
+      "targets": [
+        { "expr": "process_cpu_usage{service=\"$service\"}", "legendFormat": "process", "refId": "A" },
+        { "expr": "system_cpu_usage{service=\"$service\"}", "legendFormat": "system", "refId": "B" }
+      ]
+    }
+  ]
+}
