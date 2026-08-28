@@ -1,6 +1,6 @@
 #!/bin/bash
 
-while getopts 'd:s:' OPTION; do
+while getopts 'd:s:o' OPTION; do
 	echo $OPTION
 	case "$OPTION" in
 	d)
@@ -11,8 +11,12 @@ while getopts 'd:s:' OPTION; do
 		storage_value="$OPTARG"
 		echo "Using storage $OPTARG"
 		;;
+	o)
+		observability_value="true"
+		echo "Observability backend enabled"
+		;;
 	?)
-		echo "script usage: $(basename \$0) [-s storage] [-d database]" >&2
+		echo "script usage: $(basename \$0) [-s storage] [-d database] [-o]" >&2
 		exit 1
 		;;
 	esac
@@ -405,6 +409,63 @@ function importCACertificateDevContainer() {
   fi
 }
 
+# Wire the from-source services to a local OpenTelemetry backend and start it.
+# Downloads the OTel Java agent (there is no Paketo buildpack when running from
+# source), points the JVMs and the browser at localhost, then brings up
+# telemetry-compose/backend.yml (collector + VictoriaMetrics + Tempo +
+# VictoriaLogs + Grafana). Idempotent - safe to re-run.
+function generateObservabilityVars() {
+	OTEL_AGENT_VERSION="${OTEL_AGENT_VERSION:-2.20.1}"
+	OTEL_AGENT_DIR="$PWD/.tools"
+	OTEL_AGENT_JAR="$OTEL_AGENT_DIR/opentelemetry-javaagent.jar"
+
+	mkdir -p "$OTEL_AGENT_DIR"
+	if [ ! -f "$OTEL_AGENT_JAR" ]; then
+		echo "Downloading OpenTelemetry Java agent $OTEL_AGENT_VERSION"
+		curl -fsSL -o "$OTEL_AGENT_JAR" \
+			"https://github.com/open-telemetry/opentelemetry-java-instrumentation/releases/download/v${OTEL_AGENT_VERSION}/opentelemetry-javaagent.jar"
+	fi
+
+	# generate{Api,Executor,Registry}Vars have already (re)written each env file from
+	# scratch this run, so the JAVA_TOOL_OPTIONS line here is the pristine one - capture
+	# it, drop it, and prepend the -javaagent flag.
+	for svc in api executor registry; do
+		envfile=".env$(echo "$svc" | sed 's/^./\U&/')"   # .envApi / .envExecutor / .envRegistry
+		prev_jto="$(grep '^JAVA_TOOL_OPTIONS=' "$envfile" | tail -1 | sed 's/^JAVA_TOOL_OPTIONS=//; s|-javaagent:[^ ]*opentelemetry-javaagent\.jar *||g')"
+		sed -i '/^JAVA_TOOL_OPTIONS=/d; /^OTEL_/d' "$envfile"
+		{
+			echo "JAVA_TOOL_OPTIONS=-javaagent:$OTEL_AGENT_JAR${prev_jto:+ $prev_jto}"
+			echo "OTEL_SERVICE_NAME=terrakube-$svc"
+			echo "OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4318"
+			echo "OTEL_EXPORTER_OTLP_PROTOCOL=http/protobuf"
+			echo "OTEL_TRACES_EXPORTER=otlp"
+			echo "OTEL_METRICS_EXPORTER=none"
+			echo "OTEL_LOGS_EXPORTER=otlp"
+			echo "OTEL_INSTRUMENTATION_LOGBACK-APPENDER_ENABLED=true"
+			echo "OTEL_INSTRUMENTATION_LOGBACK-MDC_ENABLED=true"
+			echo "OTEL_TRACES_SAMPLER=parentbased_always_on"
+			echo "OTEL_RESOURCE_ATTRIBUTES=service.namespace=terrakube,deployment.environment=local"
+		} >>"$envfile"
+	done
+
+	sed -i '/^REACT_APP_OTEL_/d' .envUi
+	{
+		echo "REACT_APP_OTEL_ENABLED=true"
+		echo "REACT_APP_OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4318/v1/traces"
+		echo "REACT_APP_OTEL_TRACES_SAMPLE_RATE=1"
+		echo "REACT_APP_OTEL_SERVICE_NAME=terrakube-ui"
+	} >>.envUi
+	generateUiConfigFile
+
+	if command -v docker >/dev/null 2>&1; then
+		echo "Starting observability backend (telemetry-compose/backend.yml)"
+		docker compose -f telemetry-compose/backend.yml up -d
+		echo "Grafana: http://localhost:3001"
+	else
+		echo "docker not found - start the backend manually: docker compose -f telemetry-compose/backend.yml up -d"
+	fi
+}
+
 #if [ "$USER" != "gitpod" ] && [ "$USER" == "vscode" ]; then
 #	openssl x509 -outform der -in /workspaces/terrakube/.devcontainer/rootCA.pem -out /workspaces/terrakube/.devcontainer/rootCA.der
 #
@@ -445,6 +506,10 @@ generateExecutorVars
 generateUiVars
 generateDexConfiguration
 importCACertificateDevContainer
+
+if [ "$observability_value" = "true" ]; then
+	generateObservabilityVars
+fi
 
 USER=$(whoami)
 	if [ "$CODESPACES" = "true" ]; then

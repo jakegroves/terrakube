@@ -56,8 +56,25 @@
 
   // Uncomment to connect as root instead. More info: https://aka.ms/dev-containers-non-root.
   "remoteUser": "vscode",
-  "forwardPorts": [8080, 3000, 8075, 8090, 5556, 9000, 9001, 5556],
+  "forwardPorts": [8080, 3000, 8075, 8090, 5556, 9000, 9001, 5556, 3001, 8428, 3200, 9428],
   "portsAttributes": {
+    "3001": {
+      "label": "Grafana (observability)",
+      "onAutoForward": "notify",
+      "visibility": "public"
+    },
+    "8428": {
+      "label": "VictoriaMetrics",
+      "onAutoForward": "silent"
+    },
+    "3200": {
+      "label": "Tempo",
+      "onAutoForward": "silent"
+    },
+    "9428": {
+      "label": "VictoriaLogs",
+      "onAutoForward": "silent"
+    },
     "8080": {
       "label": "Terrakube API",
       "onAutoForward": "silent",

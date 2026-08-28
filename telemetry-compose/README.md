@@ -13,6 +13,29 @@ Everything is visualised in a pre-provisioned Grafana. The plain
 [`../docker-compose`](../docker-compose) stack stays telemetry-free — use this one
 only when you're working on observability.
 
+Two ways to use it:
+
+| File | Runs | Use when |
+|---|---|---|
+| `docker-compose.yaml` | the 4 Terrakube services (**prebuilt `azbuilder/*` images**) **plus** the OTel backend | quick demo, no source build |
+| `backend.yml` | **only** the OTel backend (collector + stores + Grafana) | you run api/executor/registry/ui **from source** and want your changes traced |
+
+## From-source dev (VS Code)
+
+Pick the **"Terrakube + Observability"** run configuration (or run
+`./scripts/setupDevelopmentEnvironment.sh -s LOCAL -d H2 -o`). That:
+
+1. downloads the OpenTelemetry Java agent to `.tools/` (there's no Paketo buildpack when running from source),
+2. adds `-javaagent` + the `OTEL_*` / `REACT_APP_OTEL_*` vars to `.envApi` / `.envExecutor` / `.envRegistry` / the UI config,
+3. starts `backend.yml` (`docker compose -f telemetry-compose/backend.yml up -d`).
+
+Your services then push traces + logs to `localhost:4318` and VictoriaMetrics
+scrapes `/actuator/prometheus` through the docker host gateway. Grafana:
+`http://localhost:3001`. Stop it with the `observability-down` task.
+
+Idle footprint of `backend.yml` is ~360 MB (collector 80, VM 70, Tempo 30,
+VictoriaLogs 10, Grafana 170).
+
 ## Local DNS entries
 
 Add to `/etc/hosts`:
