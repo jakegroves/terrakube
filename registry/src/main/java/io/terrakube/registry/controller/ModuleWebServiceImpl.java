@@ -1,8 +1,10 @@
 package io.terrakube.registry.controller;
 
+import io.micrometer.core.instrument.Timer;
 import io.terrakube.registry.controller.model.module.ModuleDTO;
 import io.terrakube.registry.controller.model.module.VersionDTO;
 import io.terrakube.registry.controller.model.module.VersionsDTO;
+import io.terrakube.registry.metrics.RegistryMetrics;
 import io.terrakube.registry.plugin.storage.StorageService;
 import io.terrakube.registry.service.module.ModuleService;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -28,8 +30,12 @@ public class ModuleWebServiceImpl {
     @Autowired
     StorageService storageService;
 
+    @Autowired
+    RegistryMetrics registryMetrics;
+
     @GetMapping(value = "/{organization}/{module}/{provider}/versions", produces = "application/json")
     public ResponseEntity<ModuleDTO> searchModuleVersions(@PathVariable String organization, @PathVariable String module, @PathVariable String provider) {
+        Timer.Sample resolveSample = registryMetrics.startResolve();
         VersionsDTO versionsDTO = new VersionsDTO();
         List<VersionDTO> versionDTOList = new ArrayList<>();
         for (String availableVersion : moduleService.getAvailableVersions(organization, module, provider)) {
@@ -38,6 +44,7 @@ public class ModuleWebServiceImpl {
 
             versionDTOList.add(version);
         }
+        registryMetrics.stopResolve(resolveSample, "module");
         versionsDTO.setVersions(versionDTOList);
         ModuleDTO moduleDTO = new ModuleDTO();
         moduleDTO.setModules(Arrays.asList(versionsDTO));
@@ -55,6 +62,7 @@ public class ModuleWebServiceImpl {
                 "Access-Control-Expose-Headers","X-Terraform-Get"
         );
         moduleService.updateModuleDownloadCount(organization, module, provider);
+        registryMetrics.recordDownload("module");
         return ResponseEntity.noContent().headers(responseHeaders).build();
     }
 
