@@ -39,6 +39,8 @@ class JobNotificationTriggerTest {
     NotificationOutboxRepository notificationOutboxRepository;
     @Mock
     NotificationDispatchService notificationDispatchService;
+    @Mock
+    io.terrakube.api.plugin.metrics.JobLifecycleMetrics jobLifecycleMetrics;
 
     @InjectMocks
     JobNotificationTrigger subject;
