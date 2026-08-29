@@ -21,6 +21,8 @@ public interface JobRepository extends JpaRepository<Job, Integer> {
     String ACTIVE_JOB_STATUSES = "io.terrakube.api.rs.job.JobStatus.pending, io.terrakube.api.rs.job.JobStatus.approved";
     String TERMINAL_JOB_STATUSES = "io.terrakube.api.rs.job.JobStatus.failed, io.terrakube.api.rs.job.JobStatus.completed, io.terrakube.api.rs.job.JobStatus.rejected, io.terrakube.api.rs.job.JobStatus.cancelled, io.terrakube.api.rs.job.JobStatus.noChanges";
 
+    long countByStatusAndDeletedFalse(JobStatus status);
+
     List<Job> findAllByOrganizationAndStatusNotInOrderByIdAsc(Organization organization, List<JobStatus> status);
     List<Job> findAllByStatusInOrderByIdAsc(List<JobStatus> status);
     List<Job> findAllByOrganizationNameAndStatusInOrderByIdAsc(String organizationName, List<JobStatus> status);
