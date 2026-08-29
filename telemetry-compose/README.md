@@ -70,16 +70,19 @@ datasources and four dashboards (Overview, API, Executor, JVM) already loaded.
 ## Walk a request through the stack
 
 1. Sign in to the UI and start a plan on any workspace.
-2. **Grafana → Explore → Tempo**, search `service.name = terrakube-api`. Open the
-   trace — you should see spans from `terrakube-ui` (browser), `terrakube-api`
-   and `terrakube-executor` sharing one trace id, plus a `terrakube.job` span
-   carrying `workspace.id` / `organization.id` / `job.id`.
-3. From a span, use **"Logs for this span"** to jump to VictoriaLogs filtered by
-   that `trace_id`.
-4. **Grafana → Dashboards → Terrakube → Executor**: `terrakube_job_execution`,
-   `terrakube_job_concurrent` and the exit-code breakdown update as the job runs.
-5. **Terrakube → API**: watch `hikaricp_connections_pending`, the webhook queue
-   depth, and job-status throughput.
+2. **Dashboards → Terrakube - Traces**: the service graph shows
+   `terrakube-ui → terrakube-api → terrakube-executor`; the span-latency and
+   error-ratio panels fill in. Open a slow / error trace from the table — the
+   `terrakube.job` span carries `workspace.id` / `organization.id` / `job.id`.
+3. From a span, **"Logs for this span"** jumps to **Terrakube - Logs** filtered
+   by that `trace_id`. From a log line, the **TraceID** field jumps back to the
+   trace.
+4. **Terrakube - Run Outcomes** / **Flow Efficiency** / **Resources & Registry**:
+   the run fires `terrakube_run_*` and `terrakube_resource_changes_*`; use the
+   **Logs** / **Traces** links in the nav bar to drill in, or click an exemplar
+   diamond on a latency panel to open its trace.
+5. **Terrakube - Observability Platform Health**: collector spans / log records
+   accepted, VictoriaMetrics insert rate, scrape targets up.
 
 ## Configuration
 

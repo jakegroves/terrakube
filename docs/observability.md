@@ -108,6 +108,38 @@ The UI fetch instrumentation sends the W3C `traceparent` header **only** to the
 API origin (`REACT_APP_TERRAKUBE_API_URL`), so a browser interaction and the
 server work it triggers share one trace id.
 
+### 2.4 Metrics generated from traces
+
+Tempo's **metrics-generator** derives RED metrics and a service dependency graph
+from every span it receives (before sampling), remote-writing them to the metrics
+store. These are **not** application meters and are **not** covered by the §4
+stability policy.
+
+| Metric | Labels | Meaning |
+|---|---|---|
+| `traces_spanmetrics_calls_total` | `service`, `span_name`, `span_kind`, `status_code` | span count — RED rate + errors |
+| `traces_spanmetrics_latency_bucket` / `_sum` / `_count` | same | span-duration histogram — RED duration |
+| `traces_service_graph_request_total` | `client`, `server` | edge request count |
+| `traces_service_graph_request_failed_total` | `client`, `server` | edge error count |
+| `traces_service_graph_request_server_seconds_bucket` | `client`, `server` | edge latency histogram |
+
+Dimension allow-list: `service.name`, `span.name`, `span.kind`, `status.code`,
+`http.route`. High-cardinality span attributes (`workspace.id`, `job.id`,
+`organization.id` on `terrakube.job`) are deliberately **not** dimensions.
+
+Enabled by `tempo.yaml` `metrics_generator` + `overrides.defaults.metrics_generator.processors`
+locally, and `tempo-distributed.values.yaml` `metricsGenerator` +
+`overrides.defaults` in the reference stack.
+
+### 2.5 Correlating the three signals
+
+| From | To | How |
+|---|---|---|
+| metric | trace | exemplars on `traces_spanmetrics_*` panels (Grafana `exemplarTraceIdDestinations` → Tempo) |
+| trace | logs | span → **Logs for this span** (`tracesToLogsV2`, filters VictoriaLogs by `trace_id`) |
+| trace | metric | span → **Related metrics** (`tracesToMetrics`) |
+| log | trace | click the **TraceID** field on a log line (VictoriaLogs datasource `derivedFields` → Tempo) |
+
 ---
 
 ## 3. Logs
@@ -205,3 +237,24 @@ The `terrakube` chart renders the scrape object for whichever ecosystem you run
 | `<svc>.metrics.annotations.enabled` | `prometheus.io/scrape` pod annotations | annotation-based scrapers |
 
 All four describe the same target: `/actuator/prometheus` on the `http` port.
+
+---
+
+## 7. Dashboards
+
+Both stacks (`telemetry-compose/` local, `examples/observability/` reference)
+ship the same set:
+
+| Dashboard (uid) | Reads | Shows |
+|---|---|---|
+| Overview / API / Executor / JVM (`terrakube-overview`, …) | metrics | infrastructure & service health |
+| Run Outcomes & Throughput (`terrakube-runs`) | metrics | run outcomes, trigger source, success rate, per-org volume |
+| Flow Efficiency (`terrakube-flow`) | metrics | queue / approval wait, run-duration percentiles, approval funnel |
+| Resources & Registry (`terrakube-resources-registry`) | metrics | plan / apply resource changes, registry downloads, module / provider footprint |
+| Traces (`terrakube-traces`) | Tempo + span metrics | service graph, span latency / error, slow / error traces |
+| Logs (`terrakube-logs`) | VictoriaLogs | volume by level, errors by service, exception types, trace-correlated stream |
+| UI RUM (`terrakube-ui-rum`) | Tempo | Core Web Vitals & browser-error samples |
+| Observability Platform Health (`terrakube-platform-health`) | metrics | collector throughput, store insert / select, scrape targets |
+
+The metric dashboards link out to Logs and Traces from their nav bar. See §2.5
+for the click-through wiring between them.
