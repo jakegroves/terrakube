@@ -41,7 +41,7 @@ public class ModuleWebServiceImpl {
 
             versionDTOList.add(version);
         }
-        registryMetrics.stopResolve(resolveSample, "module");
+        registryMetrics.stopResolve(resolveSample, "module", organization);
         versionsDTO.setVersions(versionDTOList);
         ModuleDTO moduleDTO = new ModuleDTO();
         moduleDTO.setModules(Arrays.asList(versionsDTO));
@@ -59,7 +59,7 @@ public class ModuleWebServiceImpl {
                 "Access-Control-Expose-Headers","X-Terraform-Get"
         );
         moduleService.updateModuleDownloadCount(organization, module, provider);
-        registryMetrics.recordDownload("module");
+        registryMetrics.recordDownload("module", organization);
         return ResponseEntity.noContent().headers(responseHeaders).build();
     }
 
