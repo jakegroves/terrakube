@@ -1,0 +1,108 @@
+{
+  "__inputs": [],
+  "annotations": { "list": [] },
+  "editable": true,
+  "graphTooltip": 1,
+  "schemaVersion": 39,
+  "tags": ["terrakube", "generic", "business"],
+  "title": "Terrakube - Resources & Registry",
+  "uid": "terrakube-resources-registry",
+  "templating": {
+    "list": [
+      { "name": "DS_PROMETHEUS", "label": "Metrics source", "type": "datasource", "query": "prometheus", "current": {}, "hide": 0 },
+      {
+        "name": "organization", "label": "Organization", "type": "query",
+        "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+        "query": "label_values(terrakube_resource_changes_total, organization)",
+        "includeAll": true, "multi": true, "allValue": ".*",
+        "current": { "text": "All", "value": "$__all" }, "refresh": 2
+      }
+    ]
+  },
+  "time": { "from": "now-7d", "to": "now" },
+  "panels": [
+    {
+      "id": 1, "type": "stat", "title": "Resources created",
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "gridPos": { "h": 6, "w": 6, "x": 0, "y": 0 },
+      "targets": [ { "expr": "sum(increase(terrakube_resource_changes_total{phase=\"apply\",action=\"create\",organization=~\"$organization\"}[$__range]))", "refId": "A" } ]
+    },
+    {
+      "id": 2, "type": "stat", "title": "Resources updated",
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "gridPos": { "h": 6, "w": 6, "x": 6, "y": 0 },
+      "targets": [ { "expr": "sum(increase(terrakube_resource_changes_total{phase=\"apply\",action=\"update\",organization=~\"$organization\"}[$__range]))", "refId": "A" } ]
+    },
+    {
+      "id": 3, "type": "stat", "title": "Resources destroyed",
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "gridPos": { "h": 6, "w": 6, "x": 12, "y": 0 },
+      "targets": [ { "expr": "sum(increase(terrakube_resource_changes_total{phase=\"apply\",action=\"delete\",organization=~\"$organization\"}[$__range]))", "refId": "A" } ]
+    },
+    {
+      "id": 4, "type": "stat", "title": "Net resource change",
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "gridPos": { "h": 6, "w": 6, "x": 18, "y": 0 },
+      "targets": [ { "expr": "sum(increase(terrakube_resource_changes_total{phase=\"apply\",action=~\"create|import\",organization=~\"$organization\"}[$__range])) - sum(increase(terrakube_resource_changes_total{phase=\"apply\",action=\"delete\",organization=~\"$organization\"}[$__range]))", "refId": "A" } ]
+    },
+    {
+      "id": 5, "type": "timeseries", "title": "Applied resource changes per day by action",
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "gridPos": { "h": 9, "w": 12, "x": 0, "y": 6 },
+      "fieldConfig": { "defaults": { "custom": { "stacking": { "mode": "normal" }, "fillOpacity": 40 } }, "overrides": [] },
+      "targets": [ { "expr": "sum by (action) (increase(terrakube_resource_changes_total{phase=\"apply\",organization=~\"$organization\"}[1d]))", "legendFormat": "{{action}}", "refId": "A" } ]
+    },
+    {
+      "id": 6, "type": "timeseries", "title": "Planned vs applied change volume per day",
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "gridPos": { "h": 9, "w": 12, "x": 12, "y": 6 },
+      "targets": [
+        { "expr": "sum(increase(terrakube_resource_changes_total{phase=\"plan\",organization=~\"$organization\"}[1d]))", "legendFormat": "planned", "refId": "A" },
+        { "expr": "sum(increase(terrakube_resource_changes_total{phase=\"apply\",organization=~\"$organization\"}[1d]))", "legendFormat": "applied", "refId": "B" }
+      ]
+    },
+    {
+      "id": 7, "type": "timeseries", "title": "Plan results per day",
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "gridPos": { "h": 9, "w": 12, "x": 0, "y": 15 },
+      "targets": [ { "expr": "sum by (result) (increase(terrakube_plan_result_total{organization=~\"$organization\"}[1d]))", "legendFormat": "{{result}}", "refId": "A" } ]
+    },
+    {
+      "id": 8, "type": "timeseries", "title": "Registry downloads per day by type",
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "gridPos": { "h": 9, "w": 12, "x": 12, "y": 15 },
+      "targets": [ { "expr": "sum by (type) (increase(terrakube_registry_download_total{organization=~\"$organization\"}[1d]))", "legendFormat": "{{type}}", "refId": "A" } ]
+    },
+    {
+      "id": 9, "type": "table", "title": "Top orgs by module downloads",
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "gridPos": { "h": 9, "w": 12, "x": 0, "y": 24 },
+      "targets": [ { "expr": "topk(10, sum by (organization) (increase(terrakube_registry_download_total{type=\"module\"}[$__range])))", "format": "table", "instant": true, "refId": "A" } ]
+    },
+    {
+      "id": 10, "type": "timeseries", "title": "Modules & providers registered",
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "gridPos": { "h": 9, "w": 12, "x": 12, "y": 24 },
+      "targets": [
+        { "expr": "sum(terrakube_registry_modules{organization=~\"$organization\"})", "legendFormat": "modules", "refId": "A" },
+        { "expr": "sum(terrakube_registry_providers{organization=~\"$organization\"})", "legendFormat": "providers", "refId": "B" }
+      ]
+    },
+    {
+      "id": 11, "type": "timeseries", "title": "Net new modules/providers per day",
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "gridPos": { "h": 9, "w": 12, "x": 0, "y": 33 },
+      "targets": [
+        { "expr": "sum(delta(terrakube_registry_modules{organization=~\"$organization\"}[1d]))", "legendFormat": "modules", "refId": "A" },
+        { "expr": "sum(delta(terrakube_registry_providers{organization=~\"$organization\"}[1d]))", "legendFormat": "providers", "refId": "B" }
+      ]
+    },
+    {
+      "id": 12, "type": "timeseries", "title": "Version resolution p95 by type",
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "gridPos": { "h": 9, "w": 12, "x": 12, "y": 33 },
+      "fieldConfig": { "defaults": { "unit": "s" }, "overrides": [] },
+      "targets": [ { "expr": "histogram_quantile(0.95, sum by (le, type) (rate(terrakube_registry_resolve_seconds_bucket{organization=~\"$organization\"}[$__rate_interval])))", "legendFormat": "{{type}}", "refId": "A" } ]
+    }
+  ]
+}
