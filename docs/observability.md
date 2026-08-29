@@ -69,7 +69,13 @@ and overlay it with `sum(terrakube_job_concurrent)`.
 > **api** (not registry) — a per-organization `MultiGauge` over the `module` /
 > `provider` tables, refreshed every 60s. They are listed under §1.1.
 
-### 1.4 Tags to expect
+### 1.4 All services
+
+| Metric | Type | Unit | Tags | Meaning |
+|---|---|---|---|---|
+| `terrakube.build.info` (`terrakube_build_info`) | Gauge | — | `service`, `version`, `commit` | Always `1`. One series per running `(service, version, commit)`; a value/label change marks a deploy. Drives the "Running version" stat and the deploy annotation (§7). |
+
+### 1.5 Tags to expect
 
 | Tag | Cardinality | Notes |
 |---|---|---|
