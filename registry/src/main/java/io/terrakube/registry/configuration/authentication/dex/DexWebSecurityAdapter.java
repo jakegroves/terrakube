@@ -12,6 +12,7 @@ import org.springframework.security.config.Customizer;
 import org.springframework.security.config.annotation.method.configuration.EnableMethodSecurity;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.annotation.web.configuration.EnableWebSecurity;
+import org.springframework.security.oauth2.server.resource.web.BearerTokenAuthenticationEntryPoint;
 import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.web.cors.CorsConfiguration;
 import org.springframework.web.cors.CorsConfigurationSource;
@@ -19,6 +20,8 @@ import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
 
 import io.terrakube.client.TerrakubeClient;
 import io.terrakube.registry.configuration.OpenRegistryProperties;
+import io.terrakube.registry.configuration.authentication.MeteredAuthenticationEntryPoint;
+import io.terrakube.registry.metrics.RegistryMetrics;
 import jakarta.servlet.http.HttpServletRequest;
 import java.util.Arrays;
 import java.util.List;
@@ -43,8 +46,13 @@ public class DexWebSecurityAdapter {
     }
 
     @Bean
+    MeteredAuthenticationEntryPoint meteredAuthenticationEntryPoint(RegistryMetrics registryMetrics) {
+        return new MeteredAuthenticationEntryPoint(registryMetrics, new BearerTokenAuthenticationEntryPoint());
+    }
+
+    @Bean
     @Order(1)
-    public SecurityFilterChain filterChain(HttpSecurity http, @Value("${io.terrakube.token.issuer-uri}") String issuerUri, @Value("${io.terrakube.token.pat}") String patJwtSecret, @Value("${io.terrakube.token.internal}") String internalJwtSecret, TerrakubeClient terrakubeClient, OpenRegistryProperties openRegistryProperties) throws Exception {
+    public SecurityFilterChain filterChain(HttpSecurity http, @Value("${io.terrakube.token.issuer-uri}") String issuerUri, @Value("${io.terrakube.token.pat}") String patJwtSecret, @Value("${io.terrakube.token.internal}") String internalJwtSecret, TerrakubeClient terrakubeClient, OpenRegistryProperties openRegistryProperties, MeteredAuthenticationEntryPoint meteredAuthenticationEntryPoint) throws Exception {
         http.cors(Customizer.withDefaults())
                 .authorizeHttpRequests(authz -> authz
                         .requestMatchers("/.well-known/**").permitAll()
@@ -66,6 +74,7 @@ public class DexWebSecurityAdapter {
                             .providerManagerCacheMaximumSize(openRegistryProperties.getProviderManagerCacheMaximumSize())
                             .build();
                     oauth2.authenticationManagerResolver(authenticationManagerResolver);
+                    oauth2.authenticationEntryPoint(meteredAuthenticationEntryPoint);
                 });
 
         return http.build();
