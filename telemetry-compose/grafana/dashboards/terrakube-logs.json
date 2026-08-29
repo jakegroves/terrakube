@@ -1,0 +1,93 @@
+{
+  "__inputs": [],
+  "annotations": { "list": [] },
+  "editable": true,
+  "schemaVersion": 39,
+  "tags": ["terrakube", "reference"],
+  "title": "Terrakube - Logs",
+  "uid": "terrakube-logs",
+  "templating": {
+    "list": [
+      { "name": "DS_LOGS", "label": "Logs", "type": "datasource", "query": "victoriametrics-logs-datasource", "current": {} },
+      {
+        "name": "service", "label": "Service", "type": "query",
+        "datasource": { "type": "victoriametrics-logs-datasource", "uid": "${DS_LOGS}" },
+        "query": "service.name", "includeAll": true, "multi": true, "allValue": ".*",
+        "current": { "text": "All", "value": "$__all" }, "refresh": 2
+      },
+      { "name": "trace_id", "label": "Trace ID", "type": "textbox", "current": { "text": "", "value": "" } }
+    ]
+  },
+  "time": { "from": "now-3h", "to": "now" },
+  "panels": [
+    {
+      "id": 1, "type": "stat", "title": "Log lines",
+      "datasource": { "type": "victoriametrics-logs-datasource", "uid": "${DS_LOGS}" },
+      "gridPos": { "h": 5, "w": 6, "x": 0, "y": 0 },
+      "targets": [ { "expr": "service.name:~\"$service\" | stats count() total", "queryType": "instant", "refId": "A" } ]
+    },
+    {
+      "id": 2, "type": "stat", "title": "Errors",
+      "datasource": { "type": "victoriametrics-logs-datasource", "uid": "${DS_LOGS}" },
+      "gridPos": { "h": 5, "w": 6, "x": 6, "y": 0 },
+      "fieldConfig": { "defaults": { "thresholds": { "steps": [ { "color": "green", "value": null }, { "color": "red", "value": 1 } ] } }, "overrides": [] },
+      "targets": [ { "expr": "service.name:~\"$service\" severity_text:ERROR | stats count() total", "queryType": "instant", "refId": "A" } ]
+    },
+    {
+      "id": 3, "type": "stat", "title": "Warnings",
+      "datasource": { "type": "victoriametrics-logs-datasource", "uid": "${DS_LOGS}" },
+      "gridPos": { "h": 5, "w": 6, "x": 12, "y": 0 },
+      "targets": [ { "expr": "service.name:~\"$service\" severity_text:WARN | stats count() total", "queryType": "instant", "refId": "A" } ]
+    },
+    {
+      "id": 4, "type": "stat", "title": "Services logging",
+      "datasource": { "type": "victoriametrics-logs-datasource", "uid": "${DS_LOGS}" },
+      "gridPos": { "h": 5, "w": 6, "x": 18, "y": 0 },
+      "targets": [ { "expr": "* | stats count_uniq(service.name) total", "queryType": "instant", "refId": "A" } ]
+    },
+    {
+      "id": 5, "type": "timeseries", "title": "Log volume by level",
+      "datasource": { "type": "victoriametrics-logs-datasource", "uid": "${DS_LOGS}" },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 5 },
+      "fieldConfig": { "defaults": { "custom": { "stacking": { "mode": "normal" }, "fillOpacity": 40 } }, "overrides": [] },
+      "targets": [ { "expr": "service.name:~\"$service\" | stats by (severity_text) count() total", "queryType": "range", "refId": "A" } ]
+    },
+    {
+      "id": 6, "type": "timeseries", "title": "Errors & warnings per minute",
+      "datasource": { "type": "victoriametrics-logs-datasource", "uid": "${DS_LOGS}" },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 5 },
+      "targets": [ { "expr": "service.name:~\"$service\" severity_text:(ERROR OR WARN) | stats by (severity_text) count() total", "queryType": "range", "refId": "A" } ]
+    },
+    {
+      "id": 7, "type": "barchart", "title": "Errors by service",
+      "datasource": { "type": "victoriametrics-logs-datasource", "uid": "${DS_LOGS}" },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 13 },
+      "targets": [ { "expr": "severity_text:ERROR | stats by (service.name) count() total", "queryType": "instant", "refId": "A" } ]
+    },
+    {
+      "id": 8, "type": "table", "title": "Top exception types",
+      "datasource": { "type": "victoriametrics-logs-datasource", "uid": "${DS_LOGS}" },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 13 },
+      "targets": [ { "expr": "severity_text:ERROR exception.type:* | stats by (exception.type) count() total | sort by (total) desc | limit 15", "queryType": "instant", "refId": "A" } ]
+    },
+    {
+      "id": 9, "type": "logs", "title": "Live errors & warnings",
+      "datasource": { "type": "victoriametrics-logs-datasource", "uid": "${DS_LOGS}" },
+      "gridPos": { "h": 11, "w": 24, "x": 0, "y": 21 },
+      "options": { "showTime": true, "wrapLogMessage": true, "dedupStrategy": "none", "enableLogDetails": true },
+      "targets": [ { "expr": "service.name:~\"$service\" severity_text:(ERROR OR WARN)", "queryType": "range", "refId": "A" } ]
+    },
+    {
+      "id": 10, "type": "logs", "title": "Logs for trace $trace_id",
+      "datasource": { "type": "victoriametrics-logs-datasource", "uid": "${DS_LOGS}" },
+      "gridPos": { "h": 11, "w": 24, "x": 0, "y": 32 },
+      "options": { "showTime": true, "wrapLogMessage": true, "dedupStrategy": "none", "enableLogDetails": true },
+      "targets": [ { "expr": "trace_id:$trace_id", "queryType": "range", "refId": "A" } ]
+    },
+    {
+      "id": 11, "type": "text", "title": "How to use",
+      "gridPos": { "h": 5, "w": 24, "x": 0, "y": 43 },
+      "options": { "mode": "markdown", "content": "**Pivot from a trace:** open a trace in *Terrakube - Traces*, click a span's **Logs for this span** button.\n\n**Pivot to a trace:** click the **TraceID** field on any log line, or paste a trace id into the `Trace ID` variable above.\n\n**Ad-hoc:** Explore -> VictoriaLogs, LogsQL e.g. `service.name:terrakube-executor severity_text:ERROR`." }
+    }
+  ]
+}
