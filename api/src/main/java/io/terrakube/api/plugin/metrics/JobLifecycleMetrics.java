@@ -18,7 +18,7 @@ import io.terrakube.api.rs.job.Job;
 import io.terrakube.api.rs.job.JobStatus;
 
 /**
- * Job state-machine, queue, and business-run observability.
+ * Job state-machine, queue, and run-outcome observability.
  *
  * <p>api has no single method that owns job status transitions - they are set on the entity across
  * {@code ScheduleJob}, the reconciliation sweeps and {@code RemoteTfeService}. The one call every
@@ -27,9 +27,9 @@ import io.terrakube.api.rs.job.JobStatus;
  * invoked from.
  *
  * <p>Only the destination status is reliably available there, so the transition counter is keyed by
- * {@code to} alone. The {@code terrakube.run.*} family adds the business view: outcome, trigger
- * source ({@code via}), plan-only vs apply, per-organization. Workspace identity is never a tag -
- * it belongs on a span.
+ * {@code to} alone. The {@code terrakube.run.*} family adds outcome, trigger source ({@code via}),
+ * plan-only vs apply, and per-organization dimensions. Workspace identity is never a tag - it
+ * belongs on a span.
  *
  * <p>Approval wait is tracked in an in-memory map because {@code recordStatus} cannot see when the
  * job first entered {@code waitingApproval}; entries in flight at an api restart are lost, which is
