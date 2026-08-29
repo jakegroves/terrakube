@@ -63,3 +63,4 @@ variables.auto.tfvars
 liquibase.properties
 
 ui/.yarn/install-state.gz
+telemetry-compose/loadgen/.state.json
