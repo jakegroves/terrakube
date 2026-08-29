@@ -15,10 +15,10 @@
         "includeAll": true, "multi": true, "allValue": ".*",
         "current": { "text": "All", "value": "$__all" }
       },
-      { "name": "trace_id", "label": "Trace ID (or * for all)", "type": "textbox", "current": { "text": "*", "value": "*" } }
+      { "name": "trace_id", "label": "Trace ID", "type": "textbox", "current": { "text": "none", "value": "none" }, "description": "Paste a trace id (or arrive via 'Logs for this span'). 'none' matches nothing." }
     ]
   },
-  "time": { "from": "now-3h", "to": "now" },
+  "time": { "from": "now-1h", "to": "now" },
   "panels": [
     {
       "id": 1, "type": "stat", "title": "Log lines",
@@ -79,19 +79,19 @@
       "datasource": { "type": "victoriametrics-logs-datasource", "uid": "${DS_LOGS}" },
       "gridPos": { "h": 11, "w": 24, "x": 0, "y": 21 },
       "options": { "showTime": true, "wrapLogMessage": true, "dedupStrategy": "none", "enableLogDetails": true },
-      "targets": [ { "expr": "service.name:~\"$service\" severity_text:(ERROR OR WARN)", "queryType": "range", "refId": "A" } ]
+      "targets": [ { "expr": "service.name:~\"$service\" severity_text:(ERROR OR WARN)", "queryType": "range", "maxLines": 500, "refId": "A" } ]
     },
     {
       "id": 10, "type": "logs", "title": "Logs for trace $trace_id",
       "datasource": { "type": "victoriametrics-logs-datasource", "uid": "${DS_LOGS}" },
       "gridPos": { "h": 11, "w": 24, "x": 0, "y": 32 },
       "options": { "showTime": true, "wrapLogMessage": true, "dedupStrategy": "none", "enableLogDetails": true },
-      "targets": [ { "expr": "trace_id:$trace_id", "queryType": "range", "refId": "A" } ]
+      "targets": [ { "expr": "trace_id:$trace_id", "queryType": "range", "maxLines": 200, "refId": "A" } ]
     },
     {
       "id": 11, "type": "text", "title": "How to use",
       "gridPos": { "h": 4, "w": 24, "x": 0, "y": 43 },
-      "options": { "mode": "markdown", "content": "**From a trace:** open a trace in *Terrakube - Traces*, click a span's **Logs for this span**.\n\n**To a trace:** click the **TraceID** field on any log line, or paste a trace id into the `Trace ID` variable (leave `*` to see all traced logs).\n\n**Ad-hoc:** Explore -> VictoriaLogs, e.g. `service.name:terrakube-executor severity_text:ERROR`." }
+      "options": { "mode": "markdown", "content": "**From a trace:** open a trace in *Terrakube - Traces*, click a span's **Logs for this span** (fills in the `Trace ID` variable).\n\n**To a trace:** click the **TraceID** field on any log line.\n\nThe *Logs for trace* panel is empty until a real trace id is set (`none` matches nothing). Stream panels are capped (500 / 200 lines).\n\n**Ad-hoc:** Explore -> VictoriaLogs, e.g. `service.name:terrakube-executor severity_text:ERROR`." }
     }
   ]
 }
