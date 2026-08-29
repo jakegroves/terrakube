@@ -66,6 +66,11 @@ public class TerraformExecutorServiceImpl implements TerraformExecutor {
     TerraformOutputsService terraformOutputsService;
     ObjectMapper objectMapper;
 
+    // Optional so TerraformExecutorServiceImplTest's direct constructor is unchanged; Spring
+    // field-injects it in the running executor.
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    io.terrakube.executor.service.metrics.ExecutorJobMetrics executorJobMetrics;
+
     public TerraformExecutorServiceImpl(TerraformClient terraformClient, TerraformState terraformState, ScriptEngineService scriptEngineService, ProcessLogs logsService, PlanStructuredOutputService planStructuredOutputService, ApplyStructuredOutputService applyStructuredOutputService, TerraformOutputsService terraformOutputsService, ObjectMapper objectMapper, @Value("${io.terrakube.terraform.flags.enableColor}") boolean enableColorOutput, RedisTemplate redisTemplate, @Value("${io.terrakube.executor.redis.timeout}") int redisTimeout) {
         this.terraformClient = terraformClient;
         this.terraformState = terraformState;
@@ -406,6 +411,10 @@ public class TerraformExecutorServiceImpl implements TerraformExecutor {
                 terraformJob.getOrganizationId(), terraformJob.getJobId(), terraformJob.getStepId(), changes, jobDiagnostics);
         pushLiveStructuredUpdate("apply", terraformJob, changes, jobDiagnostics);
 
+        if (executorJobMetrics != null) {
+            executorJobMetrics.recordResourceChanges("apply", terraformJob.getOrganizationId(), changes);
+        }
+
         return execution;
     }
 
@@ -448,6 +457,10 @@ public class TerraformExecutorServiceImpl implements TerraformExecutor {
         applyStructuredOutputService.publishApplyProgress(
                 terraformJob.getOrganizationId(), terraformJob.getJobId(), terraformJob.getStepId(), changes, jobDiagnostics);
         pushLiveStructuredUpdate("apply", terraformJob, changes, jobDiagnostics);
+
+        if (executorJobMetrics != null) {
+            executorJobMetrics.recordResourceChanges("apply", terraformJob.getOrganizationId(), changes);
+        }
 
         return execution;
     }
