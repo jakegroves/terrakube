@@ -4,7 +4,7 @@
   "editable": true,
   "graphTooltip": 1,
   "schemaVersion": 39,
-  "tags": ["terrakube", "generic", "business"],
+  "tags": ["terrakube", "generic"],
   "title": "Terrakube - Resources & Registry",
   "uid": "terrakube-resources-registry",
   "templating": {
