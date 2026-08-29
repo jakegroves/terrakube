@@ -264,3 +264,11 @@ ship the same set:
 
 The metric dashboards link out to Logs and Traces from their nav bar. See §2.5
 for the click-through wiring between them.
+
+### Deploy annotations
+
+`terrakube-overview`, `terrakube-runs` and `terrakube-flow` carry a **Deploys**
+annotation from `terrakube_build_info` (`… unless … offset 10m`) — a marker
+appears within ~10 min of a new `(service, version, commit)`. `terrakube-overview`
+also has a **Running version** stat. For sub-minute precision, back the
+annotation with a `changes()` recording rule (not done here).
