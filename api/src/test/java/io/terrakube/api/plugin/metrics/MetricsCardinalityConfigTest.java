@@ -43,4 +43,25 @@ class MetricsCardinalityConfigTest {
 
         assertThat(registry.find("terrakube.job.queue.wait").timers()).hasSize(2);
     }
+
+    @Test
+    void capsOrganizationOnAnyMeterNotJustQueueWait() {
+        SimpleMeterRegistry registry = registryWithFilter(2);
+
+        for (String org : new String[] {"a", "b", "c"}) {
+            Counter.builder("terrakube.run.finished").tag("organization", org).register(registry);
+        }
+
+        assertThat(registry.find("terrakube.run.finished").counters()).hasSize(2);
+    }
+
+    @Test
+    void doesNotCapMetersWithoutAnOrganizationTag() {
+        SimpleMeterRegistry registry = registryWithFilter(1);
+
+        Counter.builder("terrakube.plain").tag("k", "v1").register(registry);
+        Counter.builder("terrakube.plain").tag("k", "v2").register(registry);
+
+        assertThat(registry.find("terrakube.plain").counters()).hasSize(2);
+    }
 }
