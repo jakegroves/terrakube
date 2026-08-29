@@ -100,7 +100,50 @@ d=json.load(open(sys.argv[1])); exec(sys.argv[2]); json.dump(d,open(sys.argv[1],
 }
 state_get() { python3 -c 'import sys,json; d=json.load(open(sys.argv[1])); print(eval(sys.argv[2]))' "$STATE" "$1"; }
 
-cmd_seed()     { die "seed: not implemented"; }
+cmd_seed() {
+  local orgs=5 workspaces=5
+  while [ $# -gt 0 ]; do case "$1" in
+    --orgs) orgs="$2"; shift 2;;
+    --workspaces) workspaces="$2"; shift 2;;
+    *) die "seed: bad arg $1";; esac; done
+  state_init
+  local existing; existing="$(state_get '[o["name"] for o in d["orgs"]]')"
+
+  for i in $(seq 1 "$orgs"); do
+    local name="loadgen-org-$i"
+    case "$existing" in *"'$name'"*) vlog "$name exists, skip"; continue;; esac
+
+    local oid; oid="$(jval "$(api POST /api/v1/organization \
+      "{\"data\":{\"type\":\"organization\",\"attributes\":{\"name\":\"$name\",\"executionMode\":\"remote\"}}}")" \
+      'd["data"]["id"]')"
+    [ -n "$oid" ] || die "create org $name failed"
+    log "org $name -> $oid"
+    state_put "d['orgs'].append({'id':'$oid','name':'$name'})"
+
+    # team named after the token's group so 'team manage workspace' resolves
+    api POST "/api/v1/organization/$oid/team" \
+      '{"data":{"type":"team","attributes":{"name":"TERRAKUBE_ADMIN","manageWorkspace":true,"manageJob":true,"manageState":true,"manageModule":true,"manageProvider":true,"manageVcs":true,"manageTemplate":true,"manageCollection":true,"planJob":true,"approveJob":true}}}' >/dev/null
+
+    # the auto-created templates
+    local tpls; tpls="$(api GET "/api/v1/organization/$oid/template")"
+    local plan apply
+    plan="$(jval "$tpls" 'next(t["id"] for t in d["data"] if t["attributes"]["name"]=="Plan")')"
+    apply="$(jval "$tpls" 'next(t["id"] for t in d["data"] if t["attributes"]["name"]=="Plan and apply")')"
+    [ -n "$plan" ] && [ -n "$apply" ] || die "templates not found for $name"
+    state_put "d['templates']['$oid']={'plan':'$plan','apply':'$apply'}"
+
+    for w in $(seq 1 "$workspaces"); do
+      local wname="lg-ws-$i-$w"
+      local wid; wid="$(jval "$(api POST "/api/v1/organization/$oid/workspace" \
+        "{\"data\":{\"type\":\"workspace\",\"attributes\":{\"name\":\"$wname\",\"source\":\"$SOURCE\",\"branch\":\"main\",\"iacType\":\"terraform\",\"terraformVersion\":\"$TF_VERSION\",\"executionMode\":\"remote\"}}}")" \
+        'd["data"]["id"]')"
+      [ -n "$wid" ] || die "create workspace $wname failed"
+      state_put "d['workspaces'].append({'id':'$wid','name':'$wname','orgId':'$oid','broken':False})"
+    done
+    log "  + $workspaces workspaces"
+  done
+  log "seed done: $(state_get 'len(d["orgs"])') orgs / $(state_get 'len(d["workspaces"])') workspaces"
+}
 cmd_run()      { die "run: not implemented"; }
 cmd_ramp()     { die "ramp: not implemented"; }
 cmd_teardown() { die "teardown: not implemented"; }
