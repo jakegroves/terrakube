@@ -63,7 +63,7 @@ and overlay it with `sum(terrakube_job_concurrent)`.
 |---|---|---|---|---|
 | `terrakube.registry.download` (`terrakube_registry_download_total`) | Counter | — | `type`, `organization` | Artifact downloads served. `type` ∈ {`module`,`provider`}. |
 | `terrakube.registry.resolve` (`terrakube_registry_resolve_seconds`) | Timer | s | `type`, `organization` | Version-resolution latency. `type` ∈ {`module`,`provider`}. |
-| `terrakube.registry.auth.failure` (`terrakube_registry_auth_failure_total`) | Counter | — | `reason` | Rejected registry requests. **Not yet wired** — the meter exists; instrumenting it needs a custom `AuthenticationEntryPoint`. |
+| `terrakube.registry.auth.failure` (`terrakube_registry_auth_failure_total`) | Counter | — | `reason` | Rejected registry requests (401s). `reason` ∈ {`missing_token`,`invalid_token`,`expired_token`,`other`}. |
 
 > `terrakube.registry.modules` / `terrakube.registry.providers` are emitted by
 > **api** (not registry) — a per-organization `MultiGauge` over the `module` /
