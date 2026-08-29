@@ -379,6 +379,14 @@
             <artifactId>testcontainers-mssqlserver</artifactId>
             <scope>test</scope>
         </dependency>
+        <dependency>
+            <!-- Trace API only, for the Prometheus-exemplar SpanContext bean. The OpenTelemetry
+                 Java agent (Paketo buildpack) supplies the SDK at runtime; Span.current() resolves
+                 to the agent's active span. Mirrors executor/pom.xml. -->
+            <groupId>io.opentelemetry</groupId>
+            <artifactId>opentelemetry-api</artifactId>
+            <scope>provided</scope>
+        </dependency>
     </dependencies>
     <dependencyManagement>
         <dependencies>

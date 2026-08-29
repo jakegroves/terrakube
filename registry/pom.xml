@@ -187,6 +187,13 @@
             <version>${rest-assured.version}</version>
             <scope>test</scope>
         </dependency>
+        <dependency>
+            <!-- Trace API only, for the Prometheus-exemplar SpanContext bean. The OpenTelemetry
+                 Java agent supplies the SDK at runtime. Mirrors executor/pom.xml. -->
+            <groupId>io.opentelemetry</groupId>
+            <artifactId>opentelemetry-api</artifactId>
+            <scope>provided</scope>
+        </dependency>
     </dependencies>
     <dependencyManagement>
         <dependencies>
