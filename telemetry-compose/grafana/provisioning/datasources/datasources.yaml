@@ -6,6 +6,10 @@ datasources:
     access: proxy
     url: http://victoriametrics:8428
     isDefault: true
+    jsonData:
+      exemplarTraceIdDestinations:
+        - name: trace_id
+          datasourceUid: tempo
   - name: Tempo
     uid: tempo
     type: tempo
@@ -15,8 +19,26 @@ datasources:
       tracesToLogsV2:
         datasourceUid: victorialogs
         filterByTraceID: true
+      serviceMap:
+        datasourceUid: victoriametrics
+      tracesToMetrics:
+        datasourceUid: victoriametrics
+        queries:
+          - name: 'Request rate'
+            query: 'sum(rate(traces_spanmetrics_calls_total{$__tags}[5m]))'
+          - name: 'p95 latency'
+            query: 'histogram_quantile(0.95, sum(rate(traces_spanmetrics_latency_bucket{$__tags}[5m])) by (le))'
+      nodeGraph:
+        enabled: true
   - name: VictoriaLogs
     uid: victorialogs
     type: victoriametrics-logs-datasource
     access: proxy
     url: http://victoria-logs:9428
+    jsonData:
+      derivedFields:
+        - name: TraceID
+          matcherType: label
+          matcherRegex: trace_id
+          datasourceUid: tempo
+          url: '${__value.raw}'
