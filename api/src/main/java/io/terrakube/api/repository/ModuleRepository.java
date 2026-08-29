@@ -9,7 +9,7 @@ import io.terrakube.api.rs.module.Module;
 
 public interface ModuleRepository extends JpaRepository<Module, UUID> {
 
-    @org.springframework.data.jpa.repository.Query("select m.organization.id, count(m) from Module m group by m.organization.id")
+    @org.springframework.data.jpa.repository.Query("select m.organization.id, count(m) from module m group by m.organization.id")
     List<Object[]> countByOrganization();
 
     List<Module> findByOrganizationId(UUID organizationId);
