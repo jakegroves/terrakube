@@ -1,0 +1,52 @@
+{
+  "__inputs": [],
+  "annotations": { "list": [] },
+  "editable": true,
+  "schemaVersion": 39,
+  "tags": ["terrakube", "reference"],
+  "title": "Terrakube - Traces",
+  "uid": "terrakube-traces",
+  "templating": {
+    "list": [
+      { "name": "DS_PROMETHEUS", "label": "Metrics", "type": "datasource", "query": "prometheus", "current": {} },
+      { "name": "DS_TEMPO", "label": "Traces", "type": "datasource", "query": "tempo", "current": {} }
+    ]
+  },
+  "time": { "from": "now-1h", "to": "now" },
+  "panels": [
+    {
+      "type": "nodeGraph",
+      "title": "Service graph",
+      "datasource": { "type": "tempo", "uid": "${DS_TEMPO}" },
+      "gridPos": { "h": 10, "w": 12, "x": 0, "y": 0 },
+      "targets": [ { "queryType": "serviceMap", "refId": "A" } ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Span latency p95 by service (span metrics)",
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "gridPos": { "h": 10, "w": 12, "x": 12, "y": 0 },
+      "fieldConfig": { "defaults": { "unit": "s" }, "overrides": [] },
+      "targets": [
+        { "expr": "histogram_quantile(0.95, sum by (le, service) (rate(traces_spanmetrics_latency_bucket[5m])))", "legendFormat": "{{service}}", "refId": "A" }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Error span ratio by service",
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "gridPos": { "h": 8, "w": 24, "x": 0, "y": 10 },
+      "fieldConfig": { "defaults": { "unit": "percentunit", "max": 1 }, "overrides": [] },
+      "targets": [
+        { "expr": "sum by (service) (rate(traces_spanmetrics_calls_total{status_code=\"STATUS_CODE_ERROR\"}[5m])) / clamp_min(sum by (service) (rate(traces_spanmetrics_calls_total[5m])), 1)", "legendFormat": "{{service}}", "refId": "A" }
+      ]
+    },
+    {
+      "type": "traces",
+      "title": "Recent slow / error traces",
+      "datasource": { "type": "tempo", "uid": "${DS_TEMPO}" },
+      "gridPos": { "h": 10, "w": 24, "x": 0, "y": 18 },
+      "targets": [ { "queryType": "traceql", "query": "{ span.http.status_code >= 500 || duration > 1s }", "refId": "A", "limit": 20 } ]
+    }
+  ]
+}

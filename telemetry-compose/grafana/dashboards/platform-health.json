@@ -1,0 +1,66 @@
+{
+  "__inputs": [],
+  "annotations": { "list": [] },
+  "editable": true,
+  "schemaVersion": 39,
+  "tags": ["terrakube", "reference"],
+  "title": "Terrakube - Observability Platform Health",
+  "uid": "terrakube-platform-health",
+  "templating": {
+    "list": [
+      { "name": "DS_PROMETHEUS", "label": "Metrics", "type": "datasource", "query": "prometheus", "current": {} }
+    ]
+  },
+  "time": { "from": "now-3h", "to": "now" },
+  "panels": [
+    {
+      "type": "timeseries",
+      "title": "Collector - spans / log records accepted",
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 0 },
+      "targets": [
+        { "expr": "sum(rate(otelcol_receiver_accepted_spans_total[5m]))", "legendFormat": "spans", "refId": "A" },
+        { "expr": "sum(rate(otelcol_receiver_accepted_log_records_total[5m]))", "legendFormat": "logs", "refId": "B" }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Collector - export failures",
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 0 },
+      "targets": [
+        { "expr": "sum(rate(otelcol_exporter_send_failed_spans_total[5m]))", "legendFormat": "spans failed", "refId": "A" },
+        { "expr": "sum(rate(otelcol_exporter_send_failed_log_records_total[5m]))", "legendFormat": "logs failed", "refId": "B" }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "VMCluster - insert / select rate",
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 8 },
+      "targets": [
+        { "expr": "sum(rate(vm_rows_inserted_total[5m]))", "legendFormat": "rows inserted/s", "refId": "A" },
+        { "expr": "sum(rate(vm_http_requests_total{path=~\"/select.*\"}[5m]))", "legendFormat": "selects/s", "refId": "B" }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "PVC usage (observability namespace)",
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 8 },
+      "fieldConfig": { "defaults": { "unit": "percentunit", "max": 1 }, "overrides": [] },
+      "targets": [
+        { "expr": "kubelet_volume_stats_used_bytes{namespace=\"observability\"} / kubelet_volume_stats_capacity_bytes{namespace=\"observability\"}", "legendFormat": "{{persistentvolumeclaim}}", "refId": "A" }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Scrape targets up",
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "gridPos": { "h": 8, "w": 24, "x": 0, "y": 16 },
+      "targets": [
+        { "expr": "sum by (job) (up)", "legendFormat": "{{job}}", "refId": "A" }
+      ]
+    }
+  ]
+}
