@@ -36,6 +36,7 @@ datasources:
     access: proxy
     url: http://victoria-logs:9428
     jsonData:
+      maxLines: 1000
       derivedFields:
         - name: TraceID
           matcherType: label
