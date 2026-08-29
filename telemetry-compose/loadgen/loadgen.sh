@@ -235,8 +235,46 @@ cmd_run() {
   wait
   log "run done: $n jobs launched"
 }
-cmd_ramp()     { die "ramp: not implemented"; }
-cmd_teardown() { die "teardown: not implemented"; }
+_grafana_annotation() {  # best-effort; the demo Grafana is anonymous-admin
+  local text="$1"
+  curl -s -o /dev/null -X POST "$GRAFANA_URL/api/annotations" \
+    -H 'Content-Type: application/json' \
+    -d "{\"tags\":[\"loadgen-ramp\"],\"text\":\"$text\",\"time\":$(( $(date +%s) * 1000 ))}" || true
+}
+
+cmd_ramp() {
+  local steps="1,10,50,100" hold="10m"
+  while [ $# -gt 0 ]; do case "$1" in
+    --steps) steps="$2"; shift 2;;
+    --hold) hold="$2"; shift 2;;
+    *) die "ramp: bad arg $1";; esac; done
+  state_init
+  [ "$(state_get 'len(d["workspaces"])')" -gt 0 ] || die "no seeded workspaces - run 'seed' first"
+  local IFS=,
+  for s in $steps; do
+    log "=== ramp step: concurrency=$s for $hold ==="
+    _grafana_annotation "loadgen ramp: concurrency=$s"
+    cmd_run --concurrent "$s" --rate "$((s*2))/min" --duration "$hold" --mix "plan=60,apply=35,fail=5"
+  done
+  _grafana_annotation "loadgen ramp: done"
+  log "ramp complete"
+}
+
+cmd_teardown() {
+  state_init
+  while read -r oid; do
+    [ -n "$oid" ] || continue
+    if api PATCH "/api/v1/organization/$oid" \
+        "{\"data\":{\"type\":\"organization\",\"id\":\"$oid\",\"attributes\":{\"disabled\":true}}}" >/dev/null; then
+      log "disabled org $oid"
+    else
+      log "WARN could not disable $oid"
+    fi
+  done < <(python3 -c 'import json; [print(o["id"]) for o in json.load(open("'"$STATE"'"))["orgs"]]')
+  rm -f "$STATE"
+  rm -rf "$LOADGEN_SRC"
+  log "teardown done"
+}
 
 cmd_status() {
   state_init
