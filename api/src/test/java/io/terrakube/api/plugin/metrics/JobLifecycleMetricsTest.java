@@ -4,6 +4,8 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import java.util.Date;
 import java.util.UUID;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
 
 import org.junit.jupiter.api.Test;
 
@@ -15,7 +17,8 @@ import io.terrakube.api.rs.job.JobStatus;
 class JobLifecycleMetricsTest {
 
     private final SimpleMeterRegistry registry = new SimpleMeterRegistry();
-    private final JobLifecycleMetrics metrics = new JobLifecycleMetrics(registry, () -> 7);
+    private final AtomicInteger awaiting = new AtomicInteger(0);
+    private final JobLifecycleMetrics metrics = new JobLifecycleMetrics(registry, () -> 7, awaiting::get);
 
     private Job job(JobStatus status) {
         Job job = new Job();
@@ -24,6 +27,8 @@ class JobLifecycleMetricsTest {
         organization.setId(UUID.fromString("00000000-0000-0000-0000-0000000000a1"));
         job.setOrganization(organization);
         job.setCreatedDate(new Date(System.currentTimeMillis() - 5000));
+        job.setVia("CLI");
+        job.setPlanChanges(true);
         return job;
     }
 
@@ -74,5 +79,126 @@ class JobLifecycleMetricsTest {
         metrics.recordStatus(job);
 
         assertThat(registry.find("terrakube.job.transitions").counter()).isNull();
+    }
+
+    // --- terrakube.run.started / terrakube.run.finished ---
+
+    @Test
+    void countsRunStartedWhenEnteringRunning() {
+        metrics.recordStatus(job(JobStatus.running));
+
+        assertThat(registry.get("terrakube.run.started")
+                .tags("via", "CLI", "plan_only", "false", "organization", "00000000-0000-0000-0000-0000000000a1")
+                .counter().count()).isEqualTo(1.0);
+    }
+
+    @Test
+    void doesNotCountRunStartedForNonRunningStatuses() {
+        metrics.recordStatus(job(JobStatus.queue));
+        assertThat(registry.find("terrakube.run.started").counter()).isNull();
+    }
+
+    @Test
+    void countsRunFinishedForEachTerminalOutcome() {
+        metrics.recordStatus(job(JobStatus.completed));
+        metrics.recordStatus(job(JobStatus.failed));
+
+        assertThat(registry.get("terrakube.run.finished").tag("outcome", "completed").counter().count()).isEqualTo(1.0);
+        assertThat(registry.get("terrakube.run.finished").tag("outcome", "failed").counter().count()).isEqualTo(1.0);
+    }
+
+    @Test
+    void doesNotCountRunFinishedForNonTerminalStatuses() {
+        metrics.recordStatus(job(JobStatus.running));
+        assertThat(registry.find("terrakube.run.finished").counter()).isNull();
+    }
+
+    @Test
+    void planOnlyTagReflectsPlanChangesFlag() {
+        Job planOnly = job(JobStatus.completed);
+        planOnly.setPlanChanges(false);
+        metrics.recordStatus(planOnly);
+
+        assertThat(registry.get("terrakube.run.finished").tag("plan_only", "true").counter().count()).isEqualTo(1.0);
+    }
+
+    @Test
+    void viaTagFallsBackToUnknownWhenMissing() {
+        Job job = job(JobStatus.completed);
+        job.setVia(null);
+        metrics.recordStatus(job);
+
+        assertThat(registry.get("terrakube.run.finished").tag("via", "unknown").counter().count()).isEqualTo(1.0);
+    }
+
+    // --- terrakube.run.duration ---
+
+    @Test
+    void recordsRunDurationOnTerminalTransition() {
+        metrics.recordStatus(job(JobStatus.completed));
+
+        assertThat(registry.get("terrakube.run.duration")
+                .tags("outcome", "completed", "plan_only", "false",
+                      "organization", "00000000-0000-0000-0000-0000000000a1")
+                .timer().count()).isEqualTo(1L);
+        assertThat(registry.get("terrakube.run.duration").timer().totalTime(TimeUnit.SECONDS))
+                .isBetween(3.0, 30.0);
+    }
+
+    @Test
+    void doesNotRecordRunDurationWhenCreatedDateMissing() {
+        Job job = job(JobStatus.completed);
+        job.setCreatedDate(null);
+        metrics.recordStatus(job);
+
+        assertThat(registry.find("terrakube.run.duration").timer()).isNull();
+    }
+
+    @Test
+    void doesNotRecordRunDurationForNonTerminalStatuses() {
+        metrics.recordStatus(job(JobStatus.running));
+        assertThat(registry.find("terrakube.run.duration").timer()).isNull();
+    }
+
+    // --- terrakube.run.approval.wait / terrakube.run.awaiting.approval ---
+
+    @Test
+    void recordsApprovalWaitFromWaitingApprovalToApproved() throws InterruptedException {
+        Job job = job(JobStatus.waitingApproval);
+        job.setId(4242);
+        metrics.recordStatus(job);
+        Thread.sleep(10);
+        job.setStatus(JobStatus.approved);
+        metrics.recordStatus(job);
+
+        assertThat(registry.get("terrakube.run.approval.wait")
+                .tag("organization", "00000000-0000-0000-0000-0000000000a1")
+                .timer().count()).isEqualTo(1L);
+    }
+
+    @Test
+    void recordsApprovalWaitOnRejection() {
+        Job job = job(JobStatus.waitingApproval);
+        job.setId(99);
+        metrics.recordStatus(job);
+        job.setStatus(JobStatus.rejected);
+        metrics.recordStatus(job);
+
+        assertThat(registry.get("terrakube.run.approval.wait").timer().count()).isEqualTo(1L);
+    }
+
+    @Test
+    void approvalWithNoPriorWaitingApprovalRecordsNothingAndDoesNotThrow() {
+        Job job = job(JobStatus.approved);
+        job.setId(7);
+        metrics.recordStatus(job);
+
+        assertThat(registry.find("terrakube.run.approval.wait").timer()).isNull();
+    }
+
+    @Test
+    void awaitingApprovalGaugeReadsTheSupplier() {
+        awaiting.set(3);
+        assertThat(registry.get("terrakube.run.awaiting.approval").gauge().value()).isEqualTo(3.0);
     }
 }

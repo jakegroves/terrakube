@@ -20,6 +20,8 @@ public interface JobRepository extends JpaRepository<Job, Integer> {
     // queries below, mirrors the list ScheduleJob.runExecution already uses in Java.
     String TERMINAL_JOB_STATUSES = "'failed','completed','rejected','cancelled','noChanges'";
 
+    long countByStatusAndDeletedFalse(JobStatus status);
+
     List<Job> findAllByOrganizationAndStatusNotInOrderByIdAsc(Organization organization, List<JobStatus> status);
     List<Job> findAllByStatusInOrderByIdAsc(List<JobStatus> status);
     List<Job> findAllByOrganizationNameAndStatusInOrderByIdAsc(String organizationName, List<JobStatus> status);
