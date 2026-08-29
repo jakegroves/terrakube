@@ -24,3 +24,13 @@ scrape_configs:
     static_configs:
       - targets: ["otel-collector:8888"]
         labels: { service: otel-collector }
+  - job_name: victoria-logs
+    metrics_path: /metrics
+    static_configs:
+      - targets: ["victoria-logs:9428"]
+        labels: { service: victoria-logs }
+  - job_name: tempo
+    metrics_path: /metrics
+    static_configs:
+      - targets: ["tempo:3200"]
+        labels: { service: tempo }
