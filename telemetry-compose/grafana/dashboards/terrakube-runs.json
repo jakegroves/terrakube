@@ -1,0 +1,96 @@
+{
+  "__inputs": [],
+  "annotations": { "list": [] },
+  "editable": true,
+  "graphTooltip": 1,
+  "schemaVersion": 39,
+  "tags": ["terrakube", "generic", "business"],
+  "title": "Terrakube - Run Outcomes & Throughput",
+  "uid": "terrakube-runs",
+  "templating": {
+    "list": [
+      { "name": "DS_PROMETHEUS", "label": "Metrics source", "type": "datasource", "query": "prometheus", "current": {}, "hide": 0 },
+      {
+        "name": "organization", "label": "Organization", "type": "query",
+        "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+        "query": "label_values(terrakube_run_finished_total, organization)",
+        "includeAll": true, "multi": true, "allValue": ".*",
+        "current": { "text": "All", "value": "$__all" }, "refresh": 2
+      }
+    ]
+  },
+  "time": { "from": "now-7d", "to": "now" },
+  "panels": [
+    {
+      "id": 1, "type": "stat", "title": "Total runs",
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "gridPos": { "h": 6, "w": 5, "x": 0, "y": 0 },
+      "targets": [ { "expr": "sum(increase(terrakube_run_finished_total{organization=~\"$organization\"}[$__range]))", "refId": "A" } ]
+    },
+    {
+      "id": 2, "type": "stat", "title": "Success rate",
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "gridPos": { "h": 6, "w": 5, "x": 5, "y": 0 },
+      "fieldConfig": { "defaults": { "unit": "percentunit", "min": 0, "max": 1, "thresholds": { "steps": [ { "color": "red", "value": null }, { "color": "orange", "value": 0.9 }, { "color": "green", "value": 0.98 } ] } }, "overrides": [] },
+      "targets": [ { "expr": "sum(increase(terrakube_run_finished_total{outcome=~\"completed|noChanges\",organization=~\"$organization\"}[$__range])) / clamp_min(sum(increase(terrakube_run_finished_total{organization=~\"$organization\"}[$__range])), 1)", "refId": "A" } ]
+    },
+    {
+      "id": 3, "type": "stat", "title": "Apply runs",
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "gridPos": { "h": 6, "w": 5, "x": 10, "y": 0 },
+      "targets": [ { "expr": "sum(increase(terrakube_run_finished_total{plan_only=\"false\",organization=~\"$organization\"}[$__range]))", "refId": "A" } ]
+    },
+    {
+      "id": 4, "type": "stat", "title": "Plan-only runs",
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "gridPos": { "h": 6, "w": 5, "x": 15, "y": 0 },
+      "targets": [ { "expr": "sum(increase(terrakube_run_finished_total{plan_only=\"true\",organization=~\"$organization\"}[$__range]))", "refId": "A" } ]
+    },
+    {
+      "id": 5, "type": "stat", "title": "Failed runs",
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "gridPos": { "h": 6, "w": 4, "x": 20, "y": 0 },
+      "fieldConfig": { "defaults": { "thresholds": { "steps": [ { "color": "green", "value": null }, { "color": "red", "value": 1 } ] } }, "overrides": [] },
+      "targets": [ { "expr": "sum(increase(terrakube_run_finished_total{outcome=\"failed\",organization=~\"$organization\"}[$__range]))", "refId": "A" } ]
+    },
+    {
+      "id": 6, "type": "timeseries", "title": "Runs per day by outcome",
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "gridPos": { "h": 9, "w": 12, "x": 0, "y": 6 },
+      "fieldConfig": { "defaults": { "custom": { "stacking": { "mode": "normal" }, "fillOpacity": 40 } }, "overrides": [] },
+      "targets": [ { "expr": "sum by (outcome) (increase(terrakube_run_finished_total{organization=~\"$organization\"}[1d]))", "legendFormat": "{{outcome}}", "refId": "A" } ]
+    },
+    {
+      "id": 7, "type": "timeseries", "title": "Success rate over time",
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "gridPos": { "h": 9, "w": 12, "x": 12, "y": 6 },
+      "fieldConfig": { "defaults": { "unit": "percentunit", "min": 0, "max": 1 }, "overrides": [] },
+      "targets": [ { "expr": "sum(rate(terrakube_run_finished_total{outcome=~\"completed|noChanges\",organization=~\"$organization\"}[1h])) / clamp_min(sum(rate(terrakube_run_finished_total{organization=~\"$organization\"}[1h])), 0.0001)", "legendFormat": "success rate", "refId": "A" } ]
+    },
+    {
+      "id": 8, "type": "piechart", "title": "Runs by trigger source",
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "gridPos": { "h": 9, "w": 8, "x": 0, "y": 15 },
+      "targets": [ { "expr": "sum by (via) (increase(terrakube_run_finished_total{organization=~\"$organization\"}[$__range]))", "legendFormat": "{{via}}", "refId": "A" } ]
+    },
+    {
+      "id": 9, "type": "timeseries", "title": "Plan-only vs apply per day",
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "gridPos": { "h": 9, "w": 16, "x": 8, "y": 15 },
+      "targets": [ { "expr": "sum by (plan_only) (increase(terrakube_run_finished_total{organization=~\"$organization\"}[1d]))", "legendFormat": "plan_only={{plan_only}}", "refId": "A" } ]
+    },
+    {
+      "id": 10, "type": "table", "title": "Top orgs by run volume",
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "gridPos": { "h": 9, "w": 12, "x": 0, "y": 24 },
+      "targets": [ { "expr": "topk(10, sum by (organization) (increase(terrakube_run_finished_total[$__range])))", "format": "table", "instant": true, "refId": "A" } ]
+    },
+    {
+      "id": 11, "type": "table", "title": "Orgs by failure rate",
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "gridPos": { "h": 9, "w": 12, "x": 12, "y": 24 },
+      "fieldConfig": { "defaults": { "unit": "percentunit" }, "overrides": [] },
+      "targets": [ { "expr": "sum by (organization) (increase(terrakube_run_finished_total{outcome=\"failed\"}[$__range])) / clamp_min(sum by (organization) (increase(terrakube_run_finished_total[$__range])), 1)", "format": "table", "instant": true, "refId": "A" } ]
+    }
+  ]
+}
