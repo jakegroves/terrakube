@@ -7,6 +7,10 @@
   "tags": ["terrakube", "generic"],
   "title": "Terrakube - Resources & Registry",
   "uid": "terrakube-resources-registry",
+  "links": [
+    { "title": "Logs", "type": "link", "icon": "doc", "url": "/d/terrakube-logs", "targetBlank": false },
+    { "title": "Traces", "type": "link", "icon": "info", "url": "/d/terrakube-traces", "targetBlank": false }
+  ],
   "templating": {
     "list": [
       { "name": "DS_PROMETHEUS", "label": "Metrics source", "type": "datasource", "query": "prometheus", "current": {}, "hide": 0 },
