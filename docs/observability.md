@@ -35,6 +35,13 @@ Every service also exposes the standard Micrometer/Spring binders — `jvm_*`,
 | `webhook.http.timeout.count` (`webhook_http_timeout_count_total`) | Counter | — | — | VCS API calls that failed with a connection / response / pool-acquisition timeout. |
 | `quartz.jobs.executing` (`quartz_jobs_executing`) | Gauge | — | — | Quartz jobs executing on this scheduler instance right now. |
 | `executor.availability.age.seconds` (`executor_availability_age_seconds`) | Gauge | s | — | Seconds since the executor module last signalled spare capacity. |
+| `terrakube.run.started` (`terrakube_run_started_total`) | Counter | — | `via`, `plan_only`, `organization` | Runs that began executing (status → `running`). |
+| `terrakube.run.finished` (`terrakube_run_finished_total`) | Counter | — | `outcome`, `via`, `plan_only`, `organization` | Runs reaching a terminal state. Success rate = `sum(...{outcome=~"completed\|noChanges"}) / sum(...)`. `via` is the trigger source (`UI`/`CLI`/`Github`/…). |
+| `terrakube.run.duration` (`terrakube_run_duration_seconds`) | Timer | s | `outcome`, `plan_only`, `organization` | Wall-clock time from run creation to terminal state. |
+| `terrakube.run.approval.wait` (`terrakube_run_approval_wait_seconds`) | Timer | s | `organization` | Time a run spent in `waitingApproval` before `approved`/`rejected`. Tracked in-memory — samples in flight at an api restart are lost. |
+| `terrakube.run.awaiting.approval` (`terrakube_run_awaiting_approval`) | Gauge | — | — | Runs currently in `waitingApproval` (evaluated on scrape). |
+| `terrakube.registry.modules` (`terrakube_registry_modules`) | Gauge | — | `organization` | Modules registered, per org (`MultiGauge` refreshed every 60s over the `module` table). Net growth = `delta(...[1d])`. |
+| `terrakube.registry.providers` (`terrakube_registry_providers`) | Gauge | — | `organization` | Providers registered, per org. |
 
 ### 1.2 executor
 
@@ -43,6 +50,8 @@ Every service also exposes the standard Micrometer/Spring binders — `jvm_*`,
 | `terrakube.job.execution` (`terrakube_job_execution_seconds`) | Timer | s | `tool`, `step`, `result` | Duration of a job phase. `tool` ∈ {`terraform`,`tofu`}; `step` ∈ {`plan`,`apply`,`destroy`,`script`,`unknown`}; `result` ∈ {`success`,`failure`}. |
 | `terrakube.job.exit` (`terrakube_job_exit_total`) | Counter | — | `tool`, `exit_code_class` | Subprocess outcomes. `exit_code_class` ∈ {`ok`,`error`}. |
 | `terrakube.job.concurrent` (`terrakube_job_concurrent`) | Gauge | — | — | Jobs executing on this pod right now (`0` or `1`; one job per pod). Sum across pods = cluster-wide active jobs. |
+| `terrakube.resource.changes` (`terrakube_resource_changes_total`) | Counter | — | `phase`, `action`, `organization` | Resource changes from the structured plan/apply output. `phase` ∈ {`plan`,`apply`}; `action` ∈ {`create`,`update`,`delete`,`replace`,`read`,`import`}. The one executor meter that carries `organization`. |
+| `terrakube.plan.result` (`terrakube_plan_result_total`) | Counter | — | `result`, `organization` | Plan-step outcome. `result` ∈ {`changes`,`no_changes`,`error`}. |
 
 Executor container memory is **not** an app metric — read
 `container_memory_working_set_bytes` from the cluster's kubelet/cAdvisor scrape
@@ -52,18 +61,27 @@ and overlay it with `sum(terrakube_job_concurrent)`.
 
 | Metric | Type | Unit | Tags | Meaning |
 |---|---|---|---|---|
-| `terrakube.registry.download` (`terrakube_registry_download_total`) | Counter | — | `type` | Artifact downloads served. `type` ∈ {`module`,`provider`}. |
-| `terrakube.registry.resolve` (`terrakube_registry_resolve_seconds`) | Timer | s | `type` | Version-resolution latency. `type` ∈ {`module`,`provider`}. |
+| `terrakube.registry.download` (`terrakube_registry_download_total`) | Counter | — | `type`, `organization` | Artifact downloads served. `type` ∈ {`module`,`provider`}. |
+| `terrakube.registry.resolve` (`terrakube_registry_resolve_seconds`) | Timer | s | `type`, `organization` | Version-resolution latency. `type` ∈ {`module`,`provider`}. |
 | `terrakube.registry.auth.failure` (`terrakube_registry_auth_failure_total`) | Counter | — | `reason` | Rejected registry requests. **Not yet wired** — the meter exists; instrumenting it needs a custom `AuthenticationEntryPoint`. |
+
+> `terrakube.registry.modules` / `terrakube.registry.providers` are emitted by
+> **api** (not registry) — a per-organization `MultiGauge` over the `module` /
+> `provider` tables, refreshed every 60s. They are listed under §1.1.
 
 ### 1.4 Tags to expect
 
 | Tag | Cardinality | Notes |
 |---|---|---|
 | `to` | bounded | `JobStatus` enum |
+| `outcome` | bounded | terminal `JobStatus` values |
+| `via` | 7 | trigger source: `UI`/`CLI`/`Github`/`Gitlab`/`Bitbucket`/`AzureDevops`/`Schedule` |
+| `plan_only` | 2 | `true` / `false` |
 | `tool` | 2 | terraform / tofu |
+| `phase` | 2 | `plan` / `apply` (on `terrakube.resource.changes`) |
+| `action` | ≤6 | `create`/`update`/`delete`/`replace`/`read`/`import` |
 | `step`, `result`, `exit_code_class`, `type` | ≤5 | fixed enumerations |
-| `organization` | bounded in practice | capped at `io.terrakube.metrics.max-organization-tags` (default 200) by a `MeterFilter`; drop it entirely with `MeterFilter.ignoreTags("organization")` |
+| `organization` | bounded in practice | capped at `io.terrakube.metrics.max-organization-tags` (default 200) by a `MeterFilter` in **api, executor and registry**, applied to every meter that carries the tag (`terrakube.job.queue.wait`, `terrakube.run.*`, `terrakube.resource.changes`, `terrakube.plan.result`, `terrakube.registry.*`). Drop it entirely with `MeterFilter.ignoreTags("organization")`. |
 | `workspace` | **never a tag** | unbounded — it is a *span attribute* only, and a `MeterFilter` drops any meter that carries it |
 
 ---
@@ -115,6 +133,14 @@ semver:
 - Renaming or removing a metric → deprecation cycle: emit old **and** new for one
   minor release, note it under **Breaking** in the changelog, remove no earlier
   than the next minor.
+
+### Breaking
+
+- **`terrakube.registry.download` and `terrakube.registry.resolve` gained the
+  `organization` tag key** (2026-08). Series identity changed — treat
+  pre-change and post-change series as distinct. Queries that summed these
+  without `organization` are unaffected; those that relied on the exact series
+  set must re-aggregate.
 
 ---
 
