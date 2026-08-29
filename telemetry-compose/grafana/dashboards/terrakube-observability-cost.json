@@ -1,0 +1,135 @@
+{
+  "__inputs": [],
+  "annotations": {
+    "list": [
+      {
+        "name": "Deploys",
+        "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+        "enable": true,
+        "iconColor": "semi-dark-blue",
+        "titleFormat": "{{service}} {{version}}",
+        "textFormat": "commit {{commit}}",
+        "expr": "count by (service, version, commit) (terrakube_build_info) unless count by (service, version, commit) (terrakube_build_info offset 10m)"
+      }
+    ]
+  },
+  "editable": true,
+  "graphTooltip": 1,
+  "schemaVersion": 39,
+  "tags": ["terrakube", "reference"],
+  "title": "Terrakube - Observability Cost & Scale",
+  "uid": "terrakube-observability-cost",
+  "templating": {
+    "list": [
+      { "name": "DS_PROMETHEUS", "label": "Metrics source", "type": "datasource", "query": "prometheus", "current": {}, "hide": 0 }
+    ]
+  },
+  "time": { "from": "now-6h", "to": "now" },
+  "panels": [
+    {
+      "id": 1, "type": "stat", "title": "Active series (total)",
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "gridPos": { "h": 5, "w": 6, "x": 0, "y": 0 },
+      "targets": [ { "expr": "count({__name__!=\"\"})", "instant": true, "refId": "A" } ]
+    },
+    {
+      "id": 2, "type": "stat", "title": "Terrakube series",
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "gridPos": { "h": 5, "w": 6, "x": 6, "y": 0 },
+      "targets": [ { "expr": "count({__name__=~\"terrakube_.*\"})", "instant": true, "refId": "A" } ]
+    },
+    {
+      "id": 3, "type": "stat", "title": "New series / min",
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "gridPos": { "h": 5, "w": 6, "x": 12, "y": 0 },
+      "targets": [ { "expr": "sum(rate(vm_new_timeseries_created_total[5m])) * 60", "refId": "A" } ]
+    },
+    {
+      "id": 4, "type": "stat", "title": "Scrape targets up",
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "gridPos": { "h": 5, "w": 6, "x": 18, "y": 0 },
+      "targets": [ { "expr": "sum(up)", "refId": "A" } ]
+    },
+    {
+      "id": 5, "type": "table", "title": "Top Terrakube / trace metrics by series",
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "gridPos": { "h": 10, "w": 12, "x": 0, "y": 5 },
+      "targets": [ { "expr": "topk(20, count by (__name__) ({__name__=~\"terrakube_.*|traces_.*\"}))", "format": "table", "instant": true, "refId": "A" } ]
+    },
+    {
+      "id": 6, "type": "timeseries", "title": "Ingest rate",
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "gridPos": { "h": 10, "w": 12, "x": 12, "y": 5 },
+      "targets": [
+        { "expr": "sum(rate(vm_rows_inserted_total[5m]))", "legendFormat": "metrics samples/s", "refId": "A" },
+        { "expr": "sum(rate(vl_bytes_ingested_total[5m]))", "legendFormat": "log bytes/s", "refId": "B" },
+        { "expr": "sum(rate(tempo_distributor_bytes_received_total[5m]))", "legendFormat": "trace bytes/s", "refId": "C" }
+      ]
+    },
+    {
+      "id": 7, "type": "timeseries", "title": "Store size on disk",
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "gridPos": { "h": 9, "w": 12, "x": 0, "y": 15 },
+      "fieldConfig": { "defaults": { "unit": "bytes" }, "overrides": [] },
+      "targets": [
+        { "expr": "sum(vm_data_size_bytes)", "legendFormat": "VictoriaMetrics", "refId": "A" },
+        { "expr": "sum(vl_data_size_bytes)", "legendFormat": "VictoriaLogs", "refId": "B" }
+      ]
+    },
+    {
+      "id": 8, "type": "stat", "title": "Metrics store: days to full",
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "gridPos": { "h": 5, "w": 6, "x": 12, "y": 15 },
+      "fieldConfig": { "defaults": { "unit": "d", "thresholds": { "steps": [ { "color": "red", "value": null }, { "color": "orange", "value": 7 }, { "color": "green", "value": 30 } ] } }, "overrides": [] },
+      "targets": [ { "expr": "sum(vm_free_disk_space_bytes) / clamp_min(deriv(sum(vm_data_size_bytes)[1h:5m]) * 86400, 1)", "refId": "A" } ]
+    },
+    {
+      "id": 9, "type": "stat", "title": "Logs store: days to full",
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "gridPos": { "h": 5, "w": 6, "x": 18, "y": 15 },
+      "fieldConfig": { "defaults": { "unit": "d" }, "overrides": [] },
+      "targets": [ { "expr": "sum(vl_free_disk_space_bytes) / clamp_min(deriv(sum(vl_data_size_bytes)[1h:5m]) * 86400, 1)", "refId": "A" } ]
+    },
+    {
+      "id": 10, "type": "timeseries", "title": "Query load",
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "gridPos": { "h": 9, "w": 12, "x": 0, "y": 24 },
+      "targets": [
+        { "expr": "sum(rate(vm_request_duration_seconds_count{path=~\"/select.*\"}[5m]))", "legendFormat": "VM select QPS", "refId": "A" },
+        { "expr": "sum(rate(vm_request_duration_seconds_sum{path=~\"/select.*\"}[5m])) / clamp_min(sum(rate(vm_request_duration_seconds_count{path=~\"/select.*\"}[5m])), 0.0001)", "legendFormat": "VM select avg s", "refId": "B" },
+        { "expr": "sum(rate(vl_http_request_duration_seconds_sum[5m])) / clamp_min(sum(rate(vl_http_request_duration_seconds_count[5m])), 0.0001)", "legendFormat": "VictoriaLogs avg s", "refId": "C" }
+      ]
+    },
+    {
+      "id": 11, "type": "timeseries", "title": "Pipeline throughput & errors",
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "gridPos": { "h": 9, "w": 12, "x": 12, "y": 24 },
+      "targets": [
+        { "expr": "sum(rate(otelcol_exporter_send_failed_spans_total[5m]))", "legendFormat": "collector span export fail/s", "refId": "A" },
+        { "expr": "sum(rate(otelcol_exporter_send_failed_log_records_total[5m]))", "legendFormat": "collector log export fail/s", "refId": "B" },
+        { "expr": "sum(rate(tempo_distributor_metrics_generator_pushes_total[5m]))", "legendFormat": "tempo generator pushes/s", "refId": "C" }
+      ]
+    },
+    {
+      "id": 12, "type": "timeseries", "title": "Scrape duration by job",
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "gridPos": { "h": 9, "w": 12, "x": 0, "y": 33 },
+      "fieldConfig": { "defaults": { "unit": "s" }, "overrides": [] },
+      "targets": [ { "expr": "max by (job) (scrape_duration_seconds)", "legendFormat": "{{job}}", "refId": "A" } ]
+    },
+    {
+      "id": 13, "type": "timeseries", "title": "Traces: received vs kept",
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "gridPos": { "h": 9, "w": 12, "x": 12, "y": 33 },
+      "targets": [
+        { "expr": "sum(rate(otelcol_receiver_accepted_spans_total[5m]))", "legendFormat": "collector accepted spans/s", "refId": "A" },
+        { "expr": "sum(rate(tempo_distributor_spans_received_total[5m]))", "legendFormat": "tempo received spans/s", "refId": "B" }
+      ]
+    },
+    {
+      "id": 14, "type": "text", "title": "Sizing",
+      "gridPos": { "h": 4, "w": 24, "x": 0, "y": 42 },
+      "options": { "mode": "markdown", "content": "Local trace sampling is **100%** (`OTEL_TRACES_SAMPLER=parentbased_always_on`). See `examples/observability/SIZING.md` for the cardinality/storage formula and tuning knobs. Run `telemetry-compose/loadgen/loadgen.sh ramp` and read this dashboard at each step for your own numbers." }
+    }
+  ]
+}

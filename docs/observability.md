@@ -261,6 +261,7 @@ ship the same set:
 | Logs (`terrakube-logs`) | VictoriaLogs | volume by level, errors by service, exception types, trace-correlated stream |
 | UI RUM (`terrakube-ui-rum`) | Tempo | Core Web Vitals & browser-error samples |
 | Observability Platform Health (`terrakube-platform-health`) | metrics | collector throughput, store insert / select, scrape targets |
+| Observability Cost & Scale (`terrakube-observability-cost`) | metrics | series cardinality, ingest rate, storage runway, query load, pipeline errors — watch it during a `loadgen ramp`. See `examples/observability/SIZING.md`. |
 
 The metric dashboards link out to Logs and Traces from their nav bar. See §2.5
 for the click-through wiring between them.
