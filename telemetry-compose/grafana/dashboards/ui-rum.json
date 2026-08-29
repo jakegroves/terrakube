@@ -1,0 +1,45 @@
+{
+  "__inputs": [],
+  "annotations": { "list": [] },
+  "editable": true,
+  "schemaVersion": 39,
+  "tags": ["terrakube", "reference"],
+  "title": "Terrakube - UI RUM",
+  "uid": "terrakube-ui-rum",
+  "description": "Browser telemetry from the React UI. Requires REACT_APP_OTEL_ENABLED=true in the UI runtime config.",
+  "templating": {
+    "list": [
+      { "name": "DS_TEMPO", "label": "Traces", "type": "datasource", "query": "tempo", "current": {} }
+    ]
+  },
+  "time": { "from": "now-6h", "to": "now" },
+  "panels": [
+    {
+      "type": "traces",
+      "title": "Largest Contentful Paint samples",
+      "datasource": { "type": "tempo", "uid": "${DS_TEMPO}" },
+      "gridPos": { "h": 9, "w": 12, "x": 0, "y": 0 },
+      "targets": [ { "queryType": "traceql", "query": "{ name = \"web.vital.LCP\" }", "refId": "A", "limit": 50 } ]
+    },
+    {
+      "type": "traces",
+      "title": "Interaction to Next Paint samples",
+      "datasource": { "type": "tempo", "uid": "${DS_TEMPO}" },
+      "gridPos": { "h": 9, "w": 12, "x": 12, "y": 0 },
+      "targets": [ { "queryType": "traceql", "query": "{ name = \"web.vital.INP\" }", "refId": "A", "limit": 50 } ]
+    },
+    {
+      "type": "traces",
+      "title": "Browser errors",
+      "datasource": { "type": "tempo", "uid": "${DS_TEMPO}" },
+      "gridPos": { "h": 10, "w": 24, "x": 0, "y": 9 },
+      "targets": [ { "queryType": "traceql", "query": "{ name = \"browser.error\" }", "refId": "A", "limit": 100 } ]
+    },
+    {
+      "type": "text",
+      "title": "About",
+      "gridPos": { "h": 4, "w": 24, "x": 0, "y": 19 },
+      "options": { "mode": "markdown", "content": "Web vitals (`web.vital.LCP` / `INP` / `CLS` / `FCP` / `TTFB`) and `browser.error` spans are emitted by `ui/src/telemetry`. Value is on the `web_vital.value` span attribute; route on `page.route`. For aggregated percentiles enable the Tempo metrics-generator span-metrics for browser spans and query `traces_spanmetrics_*`." }
+    }
+  ]
+}
