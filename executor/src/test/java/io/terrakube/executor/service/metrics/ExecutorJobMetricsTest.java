@@ -54,4 +54,37 @@ class ExecutorJobMetricsTest {
         registry.getMeters().forEach(meter ->
                 assertThat(meter.getId().getTag("workspace")).as(meter.getId().getName()).isNull());
     }
+
+    @Test
+    void countsResourceChangesByPhaseActionAndOrganization() {
+        java.util.List<java.util.Map<String, Object>> changes = java.util.List.of(
+                java.util.Map.of("action", "create"),
+                java.util.Map.of("action", "create"),
+                java.util.Map.of("action", "update"),
+                java.util.Map.of("action", "no-op"));
+
+        metrics.recordResourceChanges("plan", "org-1", changes);
+
+        assertThat(registry.get("terrakube.resource.changes")
+                .tags("phase", "plan", "action", "create", "organization", "org-1")
+                .counter().count()).isEqualTo(2.0);
+        assertThat(registry.get("terrakube.resource.changes")
+                .tags("phase", "plan", "action", "update", "organization", "org-1")
+                .counter().count()).isEqualTo(1.0);
+        assertThat(registry.find("terrakube.resource.changes").tag("action", "no-op").counter()).isNull();
+    }
+
+    @Test
+    void recordResourceChangesToleratesNullAndEmpty() {
+        metrics.recordResourceChanges("apply", "org-1", null);
+        metrics.recordResourceChanges("apply", "org-1", java.util.List.of());
+        assertThat(registry.find("terrakube.resource.changes").counter()).isNull();
+    }
+
+    @Test
+    void countsPlanResult() {
+        metrics.recordPlanResult("org-1", "no_changes");
+        assertThat(registry.get("terrakube.plan.result")
+                .tags("result", "no_changes", "organization", "org-1").counter().count()).isEqualTo(1.0);
+    }
 }

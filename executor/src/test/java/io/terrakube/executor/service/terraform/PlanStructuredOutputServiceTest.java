@@ -329,6 +329,34 @@ class PlanStructuredOutputServiceTest {
         assertEquals("aws_instance", merged.get(0).get("resourceType"));
     }
 
+    @Test
+    void publishPlanSummaryRecordsResourceChangeMetrics() throws Exception {
+        io.terrakube.executor.service.metrics.ExecutorJobMetrics metrics =
+                Mockito.mock(io.terrakube.executor.service.metrics.ExecutorJobMetrics.class);
+        JobContextService jobContextService = Mockito.mock(JobContextService.class);
+        Mockito.when(jobContextService.getCurrentContext(Mockito.any(), Mockito.any())).thenReturn(new HashMap<>());
+
+        PlanStructuredOutputService service = Mockito.spy(new PlanStructuredOutputService(
+                jobContextService, new ObjectMapper(), Mockito.mock(TerraformClient.class)));
+        service.executorJobMetrics = metrics;
+
+        String planJson = "{\"resource_changes\":["
+                + "{\"address\":\"aws_instance.a\",\"type\":\"aws_instance\",\"name\":\"a\",\"change\":{\"actions\":[\"create\"],\"before\":null,\"after\":{}}},"
+                + "{\"address\":\"aws_instance.b\",\"type\":\"aws_instance\",\"name\":\"b\",\"change\":{\"actions\":[\"update\"],\"before\":{},\"after\":{}}}]}";
+        Mockito.doReturn(planJson).when(service).getPlanAsJson(Mockito.any(), Mockito.any());
+
+        TerraformJob job = new TerraformJob();
+        job.setJobId("1");
+        job.setStepId("step-1");
+        job.setOrganizationId("org-1");
+
+        service.publishPlanSummary(job, new File("/tmp"), null, new java.util.ArrayList<>());
+
+        Mockito.verify(metrics).recordResourceChanges(Mockito.eq("plan"), Mockito.eq("org-1"),
+                Mockito.argThat(list -> list != null && list.size() == 2));
+        Mockito.verify(metrics).recordPlanResult("org-1", "changes");
+    }
+
     // getPlanAsHumanText exists specifically to restore the classic multi-line diff that -json
     // mode never puts in the live event stream (only terse one-line "planned_change" summaries) -
     // it must call showPlan (the non-JSON renderer), not showPlanJson (already used for the

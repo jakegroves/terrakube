@@ -55,6 +55,11 @@ public class PlanStructuredOutputService {
         this.executorFlagsProperties = executorFlagsProperties;
     }
 
+    // Optional so the many direct-construction unit tests keep their 3-arg constructor; Spring
+    // field-injects it in the running executor.
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    io.terrakube.executor.service.metrics.ExecutorJobMetrics executorJobMetrics;
+
     // Convenience constructor for tests and callers that keep the previous synchronous behaviour.
     public PlanStructuredOutputService(
             JobContextService jobContextService,
@@ -83,10 +88,19 @@ public class PlanStructuredOutputService {
             Map<String, Object> updatedContext = updateContext(context, terraformJob.getStepId(), changes, jobDiagnostics);
             applyNoChangePlanMarker(updatedContext, terraformJob.getStepId(), changes);
             saveContext(terraformJob.getOrganizationId(), terraformJob.getJobId(), updatedContext);
+
+            if (executorJobMetrics != null) {
+                executorJobMetrics.recordResourceChanges("plan", terraformJob.getOrganizationId(), changes);
+                executorJobMetrics.recordPlanResult(terraformJob.getOrganizationId(),
+                        (changes == null || changes.isEmpty()) ? "no_changes" : "changes");
+            }
         } catch (InterruptedException e) {
             log.error("Interrupted while publishing plan summary", e);
             Thread.currentThread().interrupt();
         } catch (Exception e) {
+            if (executorJobMetrics != null) {
+                executorJobMetrics.recordPlanResult(terraformJob.getOrganizationId(), "error");
+            }
             log.warn("Unable to publish structured plan output for job {} step {}", terraformJob.getJobId(),
                     terraformJob.getStepId(), e);
         }

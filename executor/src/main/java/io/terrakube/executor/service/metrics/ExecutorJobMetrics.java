@@ -46,4 +46,52 @@ public class ExecutorJobMetrics {
                 .register(registry)
                 .increment();
     }
+
+    /**
+     * Increments {@code terrakube.resource.changes} once per resource in a structured plan/apply
+     * change list, keyed by normalised {@code action}. {@code no-op} / blank actions are skipped.
+     * A metrics failure never disturbs job execution.
+     *
+     * @param phase {@code "plan"} or {@code "apply"}
+     */
+    public void recordResourceChanges(String phase, String organizationId,
+                                      java.util.List<java.util.Map<String, Object>> changes) {
+        if (changes == null || changes.isEmpty()) {
+            return;
+        }
+        try {
+            for (java.util.Map<String, Object> change : changes) {
+                Object actionRaw = change.get("action");
+                if (!(actionRaw instanceof String action) || action.isBlank() || "no-op".equals(action)) {
+                    continue;
+                }
+                Counter.builder("terrakube.resource.changes")
+                        .tag("phase", phase)
+                        .tag("action", action)
+                        .tag("organization", String.valueOf(organizationId))
+                        .description("Resource changes seen in a plan or apply")
+                        .register(registry)
+                        .increment();
+            }
+        } catch (RuntimeException e) {
+            // never let a metrics failure disturb job execution
+        }
+    }
+
+    /**
+     * Increments {@code terrakube.plan.result} once per plan step. {@code result} is one of
+     * {@code changes}, {@code no_changes}, {@code error}.
+     */
+    public void recordPlanResult(String organizationId, String result) {
+        try {
+            Counter.builder("terrakube.plan.result")
+                    .tag("result", result)
+                    .tag("organization", String.valueOf(organizationId))
+                    .description("Outcome of a plan step: changes / no_changes / error")
+                    .register(registry)
+                    .increment();
+        } catch (RuntimeException e) {
+            // swallow
+        }
+    }
 }
