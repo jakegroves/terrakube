@@ -13,21 +13,24 @@ class RegistryMetricsTest {
     private final RegistryMetrics metrics = new RegistryMetrics(registry);
 
     @Test
-    void countsDownloadsByType() {
-        metrics.recordDownload("module");
-        metrics.recordDownload("provider");
-        metrics.recordDownload("provider");
+    void countsDownloadsByTypeAndOrganization() {
+        metrics.recordDownload("module", "acme");
+        metrics.recordDownload("provider", "acme");
+        metrics.recordDownload("provider", "acme");
 
-        assertThat(registry.get("terrakube.registry.download").tag("type", "module").counter().count()).isEqualTo(1.0);
-        assertThat(registry.get("terrakube.registry.download").tag("type", "provider").counter().count()).isEqualTo(2.0);
+        assertThat(registry.get("terrakube.registry.download")
+                .tags("type", "module", "organization", "acme").counter().count()).isEqualTo(1.0);
+        assertThat(registry.get("terrakube.registry.download")
+                .tags("type", "provider", "organization", "acme").counter().count()).isEqualTo(2.0);
     }
 
     @Test
-    void timesResolutionByType() {
+    void timesResolutionByTypeAndOrganization() {
         Timer.Sample sample = metrics.startResolve();
-        metrics.stopResolve(sample, "module");
+        metrics.stopResolve(sample, "module", "acme");
 
-        assertThat(registry.get("terrakube.registry.resolve").tag("type", "module").timer().count()).isEqualTo(1L);
+        assertThat(registry.get("terrakube.registry.resolve")
+                .tags("type", "module", "organization", "acme").timer().count()).isEqualTo(1L);
     }
 
     @Test

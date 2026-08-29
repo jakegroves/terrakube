@@ -29,7 +29,7 @@ public class ProviderWebServiceImpl {
     public ResponseEntity<VersionsDTO> searchModuleVersions(@PathVariable String organization, @PathVariable String provider) {
         Timer.Sample resolveSample = registryMetrics.startResolve();
         List<VersionDTO> versionDTOList = providerService.getAvailableVersions(organization, provider);
-        registryMetrics.stopResolve(resolveSample, "provider");
+        registryMetrics.stopResolve(resolveSample, "provider", organization);
         VersionsDTO versionsDTO = new VersionsDTO();
         versionsDTO.setVersions(versionDTOList);
         return ResponseEntity.ok(versionsDTO);
@@ -38,7 +38,7 @@ public class ProviderWebServiceImpl {
     @GetMapping(value = "/{organization}/{provider}/{version}/download/{os}/{arch}", produces = "application/json")
     public ResponseEntity<FileDTO> getModuleVersionPath(@PathVariable String organization, @PathVariable String provider, @PathVariable String version, @PathVariable String os, @PathVariable String arch) {
         FileDTO fileDTO = providerService.getFileInformation(organization, provider, version, os, arch);
-        registryMetrics.recordDownload("provider");
+        registryMetrics.recordDownload("provider", organization);
         return ResponseEntity.ok().body(fileDTO);
     }
 }

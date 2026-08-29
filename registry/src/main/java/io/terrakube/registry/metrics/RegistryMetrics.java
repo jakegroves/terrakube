@@ -16,9 +16,10 @@ public class RegistryMetrics {
         this.registry = registry;
     }
 
-    public void recordDownload(String type) {
+    public void recordDownload(String type, String organization) {
         Counter.builder("terrakube.registry.download")
                 .tag("type", type)
+                .tag("organization", organization)
                 .description("Module/provider artifact downloads served")
                 .register(registry)
                 .increment();
@@ -28,9 +29,10 @@ public class RegistryMetrics {
         return Timer.start(registry);
     }
 
-    public void stopResolve(Timer.Sample sample, String type) {
+    public void stopResolve(Timer.Sample sample, String type, String organization) {
         sample.stop(Timer.builder("terrakube.registry.resolve")
                 .tag("type", type)
+                .tag("organization", organization)
                 .description("Version-resolution latency")
                 .register(registry));
     }
