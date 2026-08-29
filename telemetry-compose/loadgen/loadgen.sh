@@ -99,10 +99,11 @@ state_put() {
 d=json.load(open(sys.argv[1])); exec(sys.argv[2]); json.dump(d,open(sys.argv[1],"w"),indent=2)' "$STATE" "$1"
 }
 state_get() { python3 -c 'import sys,json; d=json.load(open(sys.argv[1])); print(eval(sys.argv[2]))' "$STATE" "$1"; }
-# print "<orgId> <workspaceId>" for a random non-broken seeded workspace
+# print "<orgId> <workspaceId>" for a random plain seeded workspace (not the
+# per-org broken / approval helpers)
 state_random_workspace() { python3 -c 'import sys,json,random
 d=json.load(open(sys.argv[1]))
-w=random.choice([x for x in d["workspaces"] if not x["broken"]])
+w=random.choice([x for x in d["workspaces"] if not x.get("kind")])
 print(w["orgId"], w["id"])' "$STATE"; }
 
 cmd_seed() {
@@ -112,10 +113,14 @@ cmd_seed() {
     --workspaces) workspaces="$2"; shift 2;;
     *) die "seed: bad arg $1";; esac; done
   state_init
+  # soft-deleted orgs keep their name reserved server-side, so tag each seed run
+  # with an id - stored in state so a re-run of the same seed is still idempotent.
+  local runid; runid="$(state_get 'd.get("runid","")')"
+  if [ -z "$runid" ]; then runid="$(date +%s | tail -c 6)"; state_put "d['runid']='$runid'"; fi
   local existing; existing="$(state_get '[o["name"] for o in d["orgs"]]')"
 
   for i in $(seq 1 "$orgs"); do
-    local name="loadgen-org-$i"
+    local name="loadgen-${runid}-org-$i"
     case "$existing" in *"'$name'"*) vlog "$name exists, skip"; continue;; esac
 
     local oid; oid="$(jval "$(api POST /api/v1/organization \
@@ -140,7 +145,7 @@ cmd_seed() {
     for w in $(seq 1 "$workspaces"); do
       local wname="lg-ws-$i-$w"
       local wid; wid="$(jval "$(api POST "/api/v1/organization/$oid/workspace" \
-        "{\"data\":{\"type\":\"workspace\",\"attributes\":{\"name\":\"$wname\",\"source\":\"$SOURCE\",\"branch\":\"main\",\"iacType\":\"terraform\",\"terraformVersion\":\"$TF_VERSION\",\"executionMode\":\"remote\"}}}")" \
+        "{\"data\":{\"type\":\"workspace\",\"attributes\":{\"name\":\"$wname\",\"source\":\"$SOURCE\",\"branch\":\"main\",\"iacType\":\"terraform\",\"terraformVersion\":\"$TF_VERSION\",\"executionMode\":\"remote\",\"allowRemoteApply\":true}}}")" \
         'd["data"]["id"]')"
       [ -n "$wid" ] || die "create workspace $wname failed"
       state_put "d['workspaces'].append({'id':'$wid','name':'$wname','orgId':'$oid','broken':False})"
@@ -166,12 +171,25 @@ print(random.choices([k for k,_ in pairs],weights=[float(v) for _,v in pairs])[0
 # a cached one-off workspace with a bad source, for the "fail" slice
 _broken_workspace() {
   local oid="$1" wid
-  wid="$(state_get "next((w['id'] for w in d['workspaces'] if w['orgId']=='$oid' and w['broken']), '')")"
+  wid="$(state_get "next((w['id'] for w in d['workspaces'] if w['orgId']=='$oid' and w.get('kind')=='broken'), '')")"
   if [ -z "$wid" ]; then
     wid="$(jval "$(api POST "/api/v1/organization/$oid/workspace" \
       "{\"data\":{\"type\":\"workspace\",\"attributes\":{\"name\":\"lg-broken-$RANDOM\",\"source\":\"file:///nonexistent-loadgen-path\",\"branch\":\"main\",\"iacType\":\"terraform\",\"terraformVersion\":\"$TF_VERSION\",\"executionMode\":\"remote\"}}}")" \
       'd["data"]["id"]')"
-    state_put "d['workspaces'].append({'id':'$wid','name':'lg-broken','orgId':'$oid','broken':True})"
+    state_put "d['workspaces'].append({'id':'$wid','name':'lg-broken','orgId':'$oid','broken':True,'kind':'broken'})"
+  fi
+  echo "$wid"
+}
+
+# a cached workspace with approval required (allowRemoteApply=false), for the "reject" slice
+_approval_workspace() {
+  local oid="$1" wid
+  wid="$(state_get "next((w['id'] for w in d['workspaces'] if w['orgId']=='$oid' and w.get('kind')=='approval'), '')")"
+  if [ -z "$wid" ]; then
+    wid="$(jval "$(api POST "/api/v1/organization/$oid/workspace" \
+      "{\"data\":{\"type\":\"workspace\",\"attributes\":{\"name\":\"lg-approval-$RANDOM\",\"source\":\"$SOURCE\",\"branch\":\"main\",\"iacType\":\"terraform\",\"terraformVersion\":\"$TF_VERSION\",\"executionMode\":\"remote\"}}}")" \
+      'd["data"]["id"]')"
+    state_put "d['workspaces'].append({'id':'$wid','name':'lg-approval','orgId':'$oid','broken':False,'kind':'approval'})"
   fi
   echo "$wid"
 }
@@ -226,7 +244,7 @@ cmd_run() {
     case "$slice" in
       plan)   ( _post_job "$oid" "$wid" "$tpl_plan"  "$via" >/dev/null ) & ;;
       apply)  ( _post_job "$oid" "$wid" "$tpl_apply" "$via" >/dev/null ) & ;;
-      reject) ( jid="$(_post_job "$oid" "$wid" "$tpl_apply" "$via")"; _reject_when_waiting "$oid" "$jid" ) & ;;
+      reject) ( aw="$(_approval_workspace "$oid")"; jid="$(_post_job "$oid" "$aw" "$tpl_apply" "$via")"; _reject_when_waiting "$oid" "$jid" ) & ;;
       fail)   ( bw="$(_broken_workspace "$oid")"; _post_job "$oid" "$bw" "$tpl_plan" "$via" >/dev/null ) & ;;
     esac
     n=$((n+1)); [ $((n % 10)) -eq 0 ] && log "  launched $n jobs"
