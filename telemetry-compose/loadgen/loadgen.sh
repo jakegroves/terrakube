@@ -99,6 +99,11 @@ state_put() {
 d=json.load(open(sys.argv[1])); exec(sys.argv[2]); json.dump(d,open(sys.argv[1],"w"),indent=2)' "$STATE" "$1"
 }
 state_get() { python3 -c 'import sys,json; d=json.load(open(sys.argv[1])); print(eval(sys.argv[2]))' "$STATE" "$1"; }
+# print "<orgId> <workspaceId>" for a random non-broken seeded workspace
+state_random_workspace() { python3 -c 'import sys,json,random
+d=json.load(open(sys.argv[1]))
+w=random.choice([x for x in d["workspaces"] if not x["broken"]])
+print(w["orgId"], w["id"])' "$STATE"; }
 
 cmd_seed() {
   local orgs=5 workspaces=5
@@ -144,7 +149,92 @@ cmd_seed() {
   done
   log "seed done: $(state_get 'len(d["orgs"])') orgs / $(state_get 'len(d["workspaces"])') workspaces"
 }
-cmd_run()      { die "run: not implemented"; }
+# parse "20/min" | "2/sec" -> seconds between launches (float)
+_interval() { python3 -c 'import sys
+v,unit=sys.argv[1].split("/"); v=float(v)
+print(60.0/v if unit.startswith("min") else 1.0/v)' "$1"; }
+
+# parse "10m" | "90s" -> seconds
+_seconds() { python3 -c 'import sys
+x=sys.argv[1]; print(int(x[:-1])*60 if x.endswith("m") else int(x.rstrip("s")))' "$1"; }
+
+# weighted-random slice name from "plan=60,apply=30,reject=5,fail=5"
+_pick_slice() { python3 -c 'import sys,random
+pairs=[p.split("=") for p in sys.argv[1].split(",")]
+print(random.choices([k for k,_ in pairs],weights=[float(v) for _,v in pairs])[0])' "$1"; }
+
+# a cached one-off workspace with a bad source, for the "fail" slice
+_broken_workspace() {
+  local oid="$1" wid
+  wid="$(state_get "next((w['id'] for w in d['workspaces'] if w['orgId']=='$oid' and w['broken']), '')")"
+  if [ -z "$wid" ]; then
+    wid="$(jval "$(api POST "/api/v1/organization/$oid/workspace" \
+      "{\"data\":{\"type\":\"workspace\",\"attributes\":{\"name\":\"lg-broken-$RANDOM\",\"source\":\"file:///nonexistent-loadgen-path\",\"branch\":\"main\",\"iacType\":\"terraform\",\"terraformVersion\":\"$TF_VERSION\",\"executionMode\":\"remote\"}}}")" \
+      'd["data"]["id"]')"
+    state_put "d['workspaces'].append({'id':'$wid','name':'lg-broken','orgId':'$oid','broken':True})"
+  fi
+  echo "$wid"
+}
+
+_post_job() {  # ORG_ID WORKSPACE_ID TEMPLATE_ID VIA -> job id
+  jval "$(api POST "/api/v1/organization/$1/job" \
+    "{\"data\":{\"type\":\"job\",\"attributes\":{\"templateReference\":\"$3\",\"via\":\"$4\"},\"relationships\":{\"workspace\":{\"data\":{\"type\":\"workspace\",\"id\":\"$2\"}}}}}")" \
+    'd["data"]["id"]'
+}
+
+_job_status() { jval "$(api GET "/api/v1/organization/$1/job/$2")" 'd["data"]["attributes"]["status"]'; }
+
+_reject_when_waiting() {  # ORG_ID JOB_ID : poll, PATCH to rejected once waitingApproval
+  local oid="$1" jid="$2" i st
+  for i in $(seq 1 60); do
+    sleep 3; st="$(_job_status "$oid" "$jid")"
+    case "$st" in
+      waitingApproval) api PATCH "/api/v1/organization/$oid/job/$jid" \
+        "{\"data\":{\"type\":\"job\",\"id\":\"$jid\",\"attributes\":{\"status\":\"rejected\"}}}" >/dev/null; return;;
+      completed|noChanges|failed|cancelled|rejected|notExecuted|unknown) return;;
+    esac
+  done
+}
+
+cmd_run() {
+  local rate="20/min" duration="5m" mix="plan=60,apply=30,reject=5,fail=5" concurrent=10
+  while [ $# -gt 0 ]; do case "$1" in
+    --rate) rate="$2"; shift 2;;
+    --duration) duration="$2"; shift 2;;
+    --mix) mix="$2"; shift 2;;
+    --concurrent) concurrent="$2"; shift 2;;
+    *) die "run: bad arg $1";; esac; done
+  state_init
+  ensure_src_repo
+  [ "$(state_get 'len(d["workspaces"])')" -gt 0 ] || die "no seeded workspaces - run 'seed' first"
+
+  local interval end_ts via_list=(CLI API UI Github Gitlab) vi=0 n=0
+  interval="$(_interval "$rate")"
+  end_ts=$(( $(date +%s) + $(_seconds "$duration") ))
+  log "run: rate=$rate mix=$mix concurrent=$concurrent for $(_seconds "$duration")s"
+
+  while [ "$(date +%s)" -lt "$end_ts" ]; do
+    while [ "$(jobs -rp | wc -l)" -ge "$concurrent" ]; do sleep 0.2; done
+    local slice; slice="$(_pick_slice "$mix")"
+    local via="${via_list[$((vi % ${#via_list[@]}))]}"; vi=$((vi+1))
+    local pick; pick="$(state_random_workspace)"
+    local oid="${pick% *}" wid="${pick#* }"
+    local tpl_plan tpl_apply
+    tpl_plan="$(state_get "d['templates']['$oid']['plan']")"
+    tpl_apply="$(state_get "d['templates']['$oid']['apply']")"
+
+    case "$slice" in
+      plan)   ( _post_job "$oid" "$wid" "$tpl_plan"  "$via" >/dev/null ) & ;;
+      apply)  ( _post_job "$oid" "$wid" "$tpl_apply" "$via" >/dev/null ) & ;;
+      reject) ( jid="$(_post_job "$oid" "$wid" "$tpl_apply" "$via")"; _reject_when_waiting "$oid" "$jid" ) & ;;
+      fail)   ( bw="$(_broken_workspace "$oid")"; _post_job "$oid" "$bw" "$tpl_plan" "$via" >/dev/null ) & ;;
+    esac
+    n=$((n+1)); [ $((n % 10)) -eq 0 ] && log "  launched $n jobs"
+    sleep "$interval"
+  done
+  wait
+  log "run done: $n jobs launched"
+}
 cmd_ramp()     { die "ramp: not implemented"; }
 cmd_teardown() { die "teardown: not implemented"; }
 
