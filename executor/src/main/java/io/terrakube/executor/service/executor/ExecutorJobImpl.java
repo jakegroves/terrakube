@@ -137,43 +137,53 @@ public class ExecutorJobImpl implements ExecutorJob {
         };
         io.micrometer.core.instrument.Timer.Sample executionSample = executorJobMetrics.startExecution();
 
-        switch (terraformJob.getType()) {
-            case "terraformPlanDestroy":
-            case "terraformPlan":
-                log.info("Execute Plan for Organization {} Workspace {} ", terraformJob.getOrganizationId(), terraformJob.getWorkspaceId());
-                terraformResult = terraformExecutor.plan(terraformJob, terraformWorkingDir, terraformJob.getType().equals("terraformPlanDestroy"));
-                break;
-            case "terraformApply":
-                log.info("Execute Apply for Organization {} Workspace {} ", terraformJob.getOrganizationId(), terraformJob.getWorkspaceId());
-                terraformResult = terraformExecutor.apply(terraformJob, terraformWorkingDir);
-                break;
-            case "terraformDestroy":
-                log.info("Execute Destroy for Organization {} Workspace {} ", terraformJob.getOrganizationId(), terraformJob.getWorkspaceId());
-                terraformResult = terraformExecutor.destroy(terraformJob, terraformWorkingDir);
-                break;
-            case "customScripts":
-            case "approval":
-                log.info("Execute Groovy Script for Organization {} Workspace {} ", terraformJob.getOrganizationId(), terraformJob.getWorkspaceId());
-                TextStringBuilder scriptOutput = new TextStringBuilder();
-                TextStringBuilder scriptErrorOutput = new TextStringBuilder();
-                Consumer<String> output = outputScripts -> scriptOutput.appendln(outputScripts);
-                boolean executionSuccess = scriptEngineService.execute(terraformJob, terraformJob.getCommandList(), terraformWorkingDir, output);
-                terraformResult.setOutputLog(scriptOutput.toString());
-                terraformResult.setOutputErrorLog(scriptErrorOutput.toString());
-                terraformResult.setSuccessfulExecution(executionSuccess);
-                break;
-            default:
-                terraformResult = new ExecutorJobResult();
-                terraformResult.setOutputLog("Command Completed");
-                terraformResult.setOutputErrorLog("Command type not defined");
-                terraformResult.setSuccessfulExecution(false);
-                break;
-        }
+        try {
+            switch (terraformJob.getType()) {
+                case "terraformPlanDestroy":
+                case "terraformPlan":
+                    log.info("Execute Plan for Organization {} Workspace {} ", terraformJob.getOrganizationId(), terraformJob.getWorkspaceId());
+                    terraformResult = terraformExecutor.plan(terraformJob, terraformWorkingDir, terraformJob.getType().equals("terraformPlanDestroy"));
+                    break;
+                case "terraformApply":
+                    log.info("Execute Apply for Organization {} Workspace {} ", terraformJob.getOrganizationId(), terraformJob.getWorkspaceId());
+                    terraformResult = terraformExecutor.apply(terraformJob, terraformWorkingDir);
+                    break;
+                case "terraformDestroy":
+                    log.info("Execute Destroy for Organization {} Workspace {} ", terraformJob.getOrganizationId(), terraformJob.getWorkspaceId());
+                    terraformResult = terraformExecutor.destroy(terraformJob, terraformWorkingDir);
+                    break;
+                case "customScripts":
+                case "approval":
+                    log.info("Execute Groovy Script for Organization {} Workspace {} ", terraformJob.getOrganizationId(), terraformJob.getWorkspaceId());
+                    TextStringBuilder scriptOutput = new TextStringBuilder();
+                    TextStringBuilder scriptErrorOutput = new TextStringBuilder();
+                    Consumer<String> output = outputScripts -> scriptOutput.appendln(outputScripts);
+                    boolean scriptSuccess = scriptEngineService.execute(terraformJob, terraformJob.getCommandList(), terraformWorkingDir, output);
+                    terraformResult.setOutputLog(scriptOutput.toString());
+                    terraformResult.setOutputErrorLog(scriptErrorOutput.toString());
+                    terraformResult.setSuccessfulExecution(scriptSuccess);
+                    break;
+                default:
+                    terraformResult = new ExecutorJobResult();
+                    terraformResult.setOutputLog("Command Completed");
+                    terraformResult.setOutputErrorLog("Command type not defined");
+                    terraformResult.setSuccessfulExecution(false);
+                    break;
+            }
 
-        boolean executionSuccess = terraformResult.isSuccessfulExecution();
-        executorJobMetrics.stopExecution(executionSample, tool, step, executionSuccess);
-        executorJobMetrics.recordExit(tool, terraformResult.getExitCode());
-        updateJobStatus.setCompletedStatus(executionSuccess, terraformResult.isPlan, terraformResult.getExitCode(), terraformJob, terraformResult.getOutputLog(), terraformResult.getOutputErrorLog(), terraformResult.getPlanFile(), commitId);
+            boolean executionSuccess = terraformResult.isSuccessfulExecution();
+            executorJobMetrics.stopExecution(executionSample, tool, step, executionSuccess);
+            executorJobMetrics.recordExit(tool, terraformResult.getExitCode());
+            updateJobStatus.setCompletedStatus(executionSuccess, terraformResult.isPlan, terraformResult.getExitCode(), terraformJob, terraformResult.getOutputLog(), terraformResult.getOutputErrorLog(), terraformResult.getPlanFile(), commitId);
+        } catch (RuntimeException e) {
+            // The caller (createJob) still owns job-status bookkeeping for a thrown execution; make
+            // sure the phase timer is stopped and the failure is counted before it propagates, so
+            // terrakube.job.execution{result="failure"} / terrakube.job.exit{exit_code_class="error"}
+            // reflect the failure mode that is most worth observing.
+            executorJobMetrics.stopExecution(executionSample, tool, step, false);
+            executorJobMetrics.recordExit(tool, -1);
+            throw e;
+        }
     }
 
     private static String getCommitId(File workspaceFolder) {

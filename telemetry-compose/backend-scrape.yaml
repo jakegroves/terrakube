@@ -1,6 +1,8 @@
 # VictoriaMetrics scrape config for the FROM-SOURCE dev loop: the api / executor /
 # registry processes run on the host (or in the devcontainer), so scrape them via
 # the docker host gateway rather than compose service names.
+# api / executor / registry each emit their own `service` label (Micrometer common
+# tag); only the non-Terrakube targets below need it injected here.
 global:
   scrape_interval: 15s
 scrape_configs:
@@ -8,17 +10,14 @@ scrape_configs:
     metrics_path: /actuator/prometheus
     static_configs:
       - targets: ["host.docker.internal:8080"]
-        labels: { service: terrakube-api }
   - job_name: terrakube-executor
     metrics_path: /actuator/prometheus
     static_configs:
       - targets: ["host.docker.internal:8090"]
-        labels: { service: terrakube-executor }
   - job_name: terrakube-registry
     metrics_path: /actuator/prometheus
     static_configs:
       - targets: ["host.docker.internal:8075"]
-        labels: { service: terrakube-registry }
   - job_name: otel-collector
     metrics_path: /metrics
     static_configs:

@@ -35,9 +35,9 @@ Every service also exposes the standard Micrometer/Spring binders — `jvm_*`,
 | `webhook.http.timeout.count` (`webhook_http_timeout_count_total`) | Counter | — | — | VCS API calls that failed with a connection / response / pool-acquisition timeout. |
 | `quartz.jobs.executing` (`quartz_jobs_executing`) | Gauge | — | — | Quartz jobs executing on this scheduler instance right now. |
 | `executor.availability.age.seconds` (`executor_availability_age_seconds`) | Gauge | s | — | Seconds since the executor module last signalled spare capacity. |
-| `terrakube.run.started` (`terrakube_run_started_total`) | Counter | — | `via`, `plan_only`, `organization` | Runs that began executing (status → `running`). |
-| `terrakube.run.finished` (`terrakube_run_finished_total`) | Counter | — | `outcome`, `via`, `plan_only`, `organization` | Runs reaching a terminal state. Success rate = `sum(...{outcome=~"completed\|noChanges"}) / sum(...)`. `via` is the trigger source (`UI`/`CLI`/`Github`/…). |
-| `terrakube.run.duration` (`terrakube_run_duration_seconds`) | Timer | s | `outcome`, `plan_only`, `organization` | Wall-clock time from run creation to terminal state. |
+| `terrakube.run.started` (`terrakube_run_started_total`) | Counter | — | `via`, `organization` | Runs that began executing (status → `running`). |
+| `terrakube.run.finished` (`terrakube_run_finished_total`) | Counter | — | `outcome`, `via`, `organization` | Runs reaching a terminal state. Success rate = `sum(...{outcome=~"completed\|noChanges"}) / sum(...)`. `via` is the trigger source (`UI`/`CLI`/`Github`/…). Counted once per run, including runs failed by the reconciliation sweeps (executor crash, 6-hour timeout). |
+| `terrakube.run.duration` (`terrakube_run_duration_seconds`) | Timer | s | `outcome`, `organization` | Wall-clock time from run creation to terminal state. |
 | `terrakube.run.approval.wait` (`terrakube_run_approval_wait_seconds`) | Timer | s | `organization` | Time a run spent in `waitingApproval` before `approved`/`rejected`. Tracked in-memory — samples in flight at an api restart are lost. |
 | `terrakube.run.awaiting.approval` (`terrakube_run_awaiting_approval`) | Gauge | — | — | Runs currently in `waitingApproval` (evaluated on scrape). |
 | `terrakube.registry.modules` (`terrakube_registry_modules`) | Gauge | — | `organization` | Modules registered, per org (`MultiGauge` refreshed every 60s over the `module` table). Net growth = `delta(...[1d])`. |
@@ -71,6 +71,13 @@ and overlay it with `sum(terrakube_job_concurrent)`.
 
 ### 1.4 All services
 
+Every meter every service exports carries a `service` tag — `terrakube-api`,
+`terrakube-executor` or `terrakube-registry` — added as a Micrometer common tag
+(`MetricsCommonTagsConfig`). Dashboards and rules key off it, so it does not
+matter how the scrape target was discovered (a Prometheus Operator
+`ServiceMonitor` would otherwise label the target `service=<k8s service name>`, a
+`PodMonitor` / `VMPodScrape` adds nothing, annotation scrapers add their own).
+
 | Metric | Type | Unit | Tags | Meaning |
 |---|---|---|---|---|
 | `terrakube.build.info` (`terrakube_build_info`) | Gauge | — | `service`, `version`, `commit` | Always `1`. One series per running `(service, version, commit)`; a value/label change marks a deploy. Drives the "Running version" stat and the deploy annotation (§7). |
@@ -82,12 +89,12 @@ and overlay it with `sum(terrakube_job_concurrent)`.
 | `to` | bounded | `JobStatus` enum |
 | `outcome` | bounded | terminal `JobStatus` values |
 | `via` | 7 | trigger source: `UI`/`CLI`/`Github`/`Gitlab`/`Bitbucket`/`AzureDevops`/`Schedule` |
-| `plan_only` | 2 | `true` / `false` |
+| `service` | 3 | `terrakube-api` / `terrakube-executor` / `terrakube-registry` — common tag on every meter |
 | `tool` | 2 | terraform / tofu |
 | `phase` | 2 | `plan` / `apply` (on `terrakube.resource.changes`) |
 | `action` | ≤6 | `create`/`update`/`delete`/`replace`/`read`/`import` |
 | `step`, `result`, `exit_code_class`, `type` | ≤5 | fixed enumerations |
-| `organization` | bounded in practice | capped at `io.terrakube.metrics.max-organization-tags` (default 200) by a `MeterFilter` in **api, executor and registry**, applied to every meter that carries the tag (`terrakube.job.queue.wait`, `terrakube.run.*`, `terrakube.resource.changes`, `terrakube.plan.result`, `terrakube.registry.*`). Drop it entirely with `MeterFilter.ignoreTags("organization")`. |
+| `organization` | bounded in practice | capped at `io.terrakube.metrics.max-organization-tags` (default 200) by a `MeterFilter` in **api, executor and registry**, applied to every meter that carries the tag (`terrakube.job.queue.wait`, `terrakube.run.*`, `terrakube.resource.changes`, `terrakube.plan.result`, `terrakube.registry.*`). The cap is on values seen within a rolling 2-hour window, so stale values (deleted orgs, junk registry paths) age out instead of permanently consuming a slot. Drop it entirely with `MeterFilter.ignoreTags("organization")`. **api / executor** tag with the organization **id** (UUID); **registry** (`terrakube.registry.download` / `.resolve`) tags with the organization **name** from the request path — the two do not join. |
 | `workspace` | **never a tag** | unbounded — it is a *span attribute* only, and a `MeterFilter` drops any meter that carries it |
 
 ---
@@ -296,12 +303,15 @@ management.metrics.distribution.percentiles-histogram.terrakube.run.approval.wai
 
 Cost: roughly `(buckets+2)/3 ≈ 6×` the series for those meter families.
 
-### `plan_only="false"` on plan-only runs
+### No plan-only vs apply dimension on `terrakube.run.*`
 
-The tag is `String.valueOf(!job.isPlanChanges())`, and `job.planChanges` defaults
-`true`, so a plan-only run is tagged `plan_only="false"`. Read the tag as
-"apply-capable", not "was an apply"; to distinguish intent, filter on `via` or
-the template.
+There is no flag on the `Job` entity that reliably distinguishes a plan-only run
+from an apply — `job.planChanges` defaults `true` and is never set `false`, and
+whether a run applies is a property of the template's TCL flow, resolved outside
+the status-change path where these meters are recorded. A `plan_only` tag that
+was always `"false"` was removed rather than shipped as if it meant something. To
+split plan vs apply today, filter on `via` or join to the template; a real
+dimension would be a deliberate follow-up.
 
 ### Job-log / plan-output fetch holds a JDBC connection for the whole object-store read
 

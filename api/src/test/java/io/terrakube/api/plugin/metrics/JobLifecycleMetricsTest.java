@@ -28,7 +28,6 @@ class JobLifecycleMetricsTest {
         job.setOrganization(organization);
         job.setCreatedDate(new Date(System.currentTimeMillis() - 5000));
         job.setVia("CLI");
-        job.setPlanChanges(true);
         return job;
     }
 
@@ -88,7 +87,7 @@ class JobLifecycleMetricsTest {
         metrics.recordStatus(job(JobStatus.running));
 
         assertThat(registry.get("terrakube.run.started")
-                .tags("via", "CLI", "plan_only", "false", "organization", "00000000-0000-0000-0000-0000000000a1")
+                .tags("via", "CLI", "organization", "00000000-0000-0000-0000-0000000000a1")
                 .counter().count()).isEqualTo(1.0);
     }
 
@@ -114,12 +113,29 @@ class JobLifecycleMetricsTest {
     }
 
     @Test
-    void planOnlyTagReflectsPlanChangesFlag() {
-        Job planOnly = job(JobStatus.completed);
-        planOnly.setPlanChanges(false);
-        metrics.recordStatus(planOnly);
+    void countsARunsTerminalOutcomeOnceEvenIfTheTerminalEventRepeats() {
+        Job job = job(JobStatus.completed);
+        job.setId(5150);
 
-        assertThat(registry.get("terrakube.run.finished").tag("plan_only", "true").counter().count()).isEqualTo(1.0);
+        metrics.recordStatus(job);
+        metrics.recordStatus(job);
+        metrics.recordStatus(job);
+
+        assertThat(registry.get("terrakube.run.finished").tag("outcome", "completed").counter().count()).isEqualTo(1.0);
+        assertThat(registry.get("terrakube.run.duration").timer().count()).isEqualTo(1L);
+    }
+
+    @Test
+    void countsTerminalOutcomesPerJob() {
+        Job first = job(JobStatus.completed);
+        first.setId(1);
+        Job second = job(JobStatus.completed);
+        second.setId(2);
+
+        metrics.recordStatus(first);
+        metrics.recordStatus(second);
+
+        assertThat(registry.get("terrakube.run.finished").tag("outcome", "completed").counter().count()).isEqualTo(2.0);
     }
 
     @Test
@@ -138,8 +154,7 @@ class JobLifecycleMetricsTest {
         metrics.recordStatus(job(JobStatus.completed));
 
         assertThat(registry.get("terrakube.run.duration")
-                .tags("outcome", "completed", "plan_only", "false",
-                      "organization", "00000000-0000-0000-0000-0000000000a1")
+                .tags("outcome", "completed", "organization", "00000000-0000-0000-0000-0000000000a1")
                 .timer().count()).isEqualTo(1L);
         assertThat(registry.get("terrakube.run.duration").timer().totalTime(TimeUnit.SECONDS))
                 .isBetween(3.0, 30.0);

@@ -1,5 +1,6 @@
 package io.terrakube.api.plugin.scheduler.reconciliation;
 
+import io.terrakube.api.plugin.metrics.JobLifecycleMetrics;
 import io.terrakube.api.plugin.scheduler.ScheduleJobService;
 import io.terrakube.api.repository.JobRepository;
 import io.terrakube.api.repository.StepRepository;
@@ -64,6 +65,7 @@ public class JobReconciliationSweep implements org.quartz.Job {
     Scheduler scheduler;
     ScheduleJobService scheduleJobService;
     RedisTemplate<String, Object> redisTemplate;
+    JobLifecycleMetrics jobLifecycleMetrics;
 
     @Transactional
     @Override
@@ -154,6 +156,10 @@ public class JobReconciliationSweep implements org.quartz.Job {
         // normally keeps workspace.lastJobStatus in sync on every entity-managed job update), so
         // without this the workspace list UI would keep showing the job's previous status
         // (typically "running") forever after this sweep fails it.
+        // Same bypass means JobNotificationTrigger never sees this transition, so record the
+        // terminal outcome directly (deduped inside recordStatus if it is also seen elsewhere).
+        job.setStatus(JobStatus.failed);
+        jobLifecycleMetrics.recordStatus(job);
         Workspace workspace = job.getWorkspace();
         if (workspace != null) {
             workspace.setLastJobStatus(JobStatus.failed);

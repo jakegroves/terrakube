@@ -28,8 +28,14 @@ public class ProviderWebServiceImpl {
     @GetMapping(value = "/{organization}/{provider}/versions", produces = "application/json")
     public ResponseEntity<VersionsDTO> searchModuleVersions(@PathVariable String organization, @PathVariable String provider) {
         Timer.Sample resolveSample = registryMetrics.startResolve();
-        List<VersionDTO> versionDTOList = providerService.getAvailableVersions(organization, provider);
-        registryMetrics.stopResolve(resolveSample, "provider", organization);
+        List<VersionDTO> versionDTOList;
+        try {
+            versionDTOList = providerService.getAvailableVersions(organization, provider);
+        } finally {
+            // Always stop the timer - a lookup failure during a registry-backend incident is
+            // exactly when resolution latency needs to be visible.
+            registryMetrics.stopResolve(resolveSample, "provider", organization);
+        }
         VersionsDTO versionsDTO = new VersionsDTO();
         versionsDTO.setVersions(versionDTOList);
         return ResponseEntity.ok(versionsDTO);

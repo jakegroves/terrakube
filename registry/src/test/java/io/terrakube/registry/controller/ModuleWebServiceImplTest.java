@@ -8,9 +8,14 @@ import org.junit.jupiter.api.Test;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
+import io.terrakube.registry.metrics.RegistryMetrics;
+
 import java.net.URI;
 import java.util.Optional;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
@@ -69,6 +74,22 @@ class ModuleWebServiceImplTest {
                 .andExpect(status().isOk());
 
         verify(storageService).downloadModule("org", "module", "aws", "1.0.0");
+    }
+
+    @Test
+    void recordsResolveLatencyEvenWhenTheVersionLookupFails() {
+        SimpleMeterRegistry meterRegistry = new SimpleMeterRegistry();
+        ModuleWebServiceImpl controller = new ModuleWebServiceImpl();
+        controller.moduleService = moduleService;
+        controller.registryMetrics = new RegistryMetrics(meterRegistry);
+        when(moduleService.getAvailableVersions("org", "module", "aws"))
+                .thenThrow(new RuntimeException("registry backend down"));
+
+        assertThrows(RuntimeException.class,
+                () -> controller.searchModuleVersions("org", "module", "aws"));
+
+        assertEquals(1L, meterRegistry.get("terrakube.registry.resolve")
+                .tag("type", "module").timer().count());
     }
 
     @Test

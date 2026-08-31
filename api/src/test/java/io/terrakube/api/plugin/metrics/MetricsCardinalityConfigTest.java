@@ -2,6 +2,9 @@ package io.terrakube.api.plugin.metrics;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import java.time.Duration;
+import java.util.concurrent.atomic.AtomicLong;
+
 import org.junit.jupiter.api.Test;
 
 import io.micrometer.core.instrument.Counter;
@@ -63,5 +66,23 @@ class MetricsCardinalityConfigTest {
         Counter.builder("terrakube.plain").tag("k", "v2").register(registry);
 
         assertThat(registry.find("terrakube.plain").counters()).hasSize(2);
+    }
+
+    @Test
+    void readmitsAnOrganizationOnceStaleValuesAgeOutOfTheRetentionWindow() {
+        AtomicLong clock = new AtomicLong(0);
+        SimpleMeterRegistry registry = new SimpleMeterRegistry();
+        registry.config().meterFilter(new MetricsCardinalityConfig.OrganizationTagCardinalityFilter(
+                1, Duration.ofHours(2), clock::get));
+
+        Counter.builder("terrakube.run.finished").tag("organization", "a").register(registry);
+        // cap is 1 and "a" is still fresh, so "b" is denied
+        Counter.builder("terrakube.run.finished").tag("organization", "b").register(registry);
+        assertThat(registry.find("terrakube.run.finished").counters()).hasSize(1);
+
+        // 3h later "a" has aged out of the 2h window, so a genuinely new org is admitted again
+        clock.set(Duration.ofHours(3).toNanos());
+        Counter.builder("terrakube.run.finished").tag("organization", "c").register(registry);
+        assertThat(registry.find("terrakube.run.finished").tags("organization", "c").counter()).isNotNull();
     }
 }
