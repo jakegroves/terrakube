@@ -255,7 +255,7 @@ ship the same set:
 |---|---|---|
 | Overview / API / Executor / JVM (`terrakube-overview`, …) | metrics | infrastructure & service health |
 | Run Outcomes & Throughput (`terrakube-runs`) | metrics | run outcomes, trigger source, success rate, per-org volume |
-| Flow Efficiency (`terrakube-flow`) | metrics | queue / approval wait, run-duration percentiles, approval funnel |
+| Flow Efficiency (`terrakube-flow`) | metrics | queue / approval wait, run-duration percentiles *(need the histogram opt-in — see §8)*, approval funnel |
 | Resources & Registry (`terrakube-resources-registry`) | metrics | plan / apply resource changes, registry downloads, module / provider footprint |
 | Traces (`terrakube-traces`) | Tempo + span metrics | service graph, span latency / error, slow / error traces |
 | Logs (`terrakube-logs`) | VictoriaLogs | volume by level, errors by service, exception types, trace-correlated stream |
@@ -273,3 +273,57 @@ annotation from `terrakube_build_info` (`… unless … offset 10m`) — a marke
 appears within ~10 min of a new `(service, version, commit)`. `terrakube-overview`
 also has a **Running version** stat. For sub-minute precision, back the
 annotation with a `changes()` recording rule (not done here).
+
+---
+
+## 8. Known limitations
+
+### Percentile panels on Flow Efficiency are empty by default
+
+`terrakube_run_duration_seconds`, `terrakube_job_queue_wait_seconds` and
+`terrakube_run_approval_wait_seconds` are Timers registered without
+`publishPercentileHistogram` — they emit `count` / `sum` / `max`, no `_bucket`,
+so the `histogram_quantile()` panels on the Flow Efficiency dashboard render
+nothing.
+
+**Workaround:** set, per service,
+
+```
+management.metrics.distribution.percentiles-histogram.terrakube.run.duration=true
+management.metrics.distribution.percentiles-histogram.terrakube.job.queue.wait=true
+management.metrics.distribution.percentiles-histogram.terrakube.run.approval.wait=true
+```
+
+Cost: roughly `(buckets+2)/3 ≈ 6×` the series for those meter families.
+
+### `plan_only="false"` on plan-only runs
+
+The tag is `String.valueOf(!job.isPlanChanges())`, and `job.planChanges` defaults
+`true`, so a plan-only run is tagged `plan_only="false"`. Read the tag as
+"apply-capable", not "was an apply"; to distinguish intent, filter on `via` or
+the template.
+
+### Job-log / plan-output fetch holds a JDBC connection for the whole object-store read
+
+The endpoint that streams a job's logs / plan output is `@Transactional` around
+the S3/blob read, so it holds one connection from the (default ~10) HikariCP
+pool for the full duration of the read. A handful of concurrent large-log views
+starve every other API call — visible as `hikaricp_connections_pending > 0` and,
+in a trace, a gap before the first JDBC child span.
+
+**Workaround:** raise `spring.datasource.hikari.maximum-pool-size`; keep job-log
+artifacts small; avoid many simultaneous large-log views. A structural fix is
+tracked outside this doc.
+
+### `terrakube.run.approval.wait` is approximate across restarts
+
+It is computed from an in-memory `Map<jobId, Instant>` populated when a job
+enters `waitingApproval`. An `api` restart drops the map, so a run whose approval
+spans the restart records no wait sample.
+
+### Executor memory has no single lever
+
+Executor container RSS is JVM heap + the `terraform` / `tofu` subprocess +
+provider plugins + metaspace. Size the container
+(`executor.resources.limits.memory` in the chart) with headroom for the
+subprocess and providers; there is no single code knob that caps the total.
