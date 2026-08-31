@@ -36,6 +36,12 @@ scrapes `/actuator/prometheus` through the docker host gateway. Grafana:
 Idle footprint of `backend.yml` is ~360 MB (collector 80, VM 70, Tempo 30,
 VictoriaLogs 10, Grafana 170).
 
+To drive realistic load against the stack — populate the dashboards, watch
+cardinality grow — use [`loadgen/`](loadgen/) (`./loadgen.sh seed && ./loadgen.sh run`).
+The cardinality / storage model and a captured reference run are in
+`examples/observability/SIZING.md` in the
+[terrakube-helm-chart](https://github.com/terrakube-io/terrakube-helm-chart) repo.
+
 ## Local DNS entries
 
 Add to `/etc/hosts`:
@@ -65,7 +71,12 @@ docker compose up -d
 | OTel Collector     | `localhost:4317/4318`     | OTLP gRPC / HTTP ingest                 |
 
 Grafana ships with the **VictoriaMetrics**, **Tempo** and **VictoriaLogs**
-datasources and four dashboards (Overview, API, Executor, JVM) already loaded.
+datasources and 12 dashboards already loaded:
+
+- **Metrics** — Overview, API, Executor, JVM, Run Outcomes & Throughput,
+  Flow Efficiency, Resources & Registry
+- **Cross-signal** — Traces, Logs, UI RUM, Observability Platform Health,
+  Observability Cost & Scale
 
 ## Walk a request through the stack
 
