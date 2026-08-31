@@ -12,6 +12,7 @@ import org.quartz.JobKey;
 import org.springframework.data.redis.core.RedisTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import io.terrakube.api.plugin.metrics.JobLifecycleMetrics;
 import io.terrakube.api.plugin.vcs.provider.github.GitHubWebhookService;
 import io.terrakube.api.repository.JobRepository;
 import io.terrakube.api.repository.StepRepository;
@@ -36,6 +37,7 @@ public class InactiveJobs implements org.quartz.Job {
     private final GitHubWebhookService gitHubWebhookService;
     private final AzDevOpsWebhookService azDevOpsWebhookService;
     private final StepRepository stepRepository;
+    private final JobLifecycleMetrics jobLifecycleMetrics;
 
     @Transactional
     @Override
@@ -71,6 +73,12 @@ public class InactiveJobs implements org.quartz.Job {
         log.error("Job has been running for more than 6 hours, cancelling running job {}", job.getId());
         jobRepository.updateStatusById(JobStatus.failed, job.getId());
         redisTemplate.delete(String.valueOf(job.getId()));
+
+        // Bulk JPQL update - bypasses JobNotificationTrigger, so record the terminal outcome
+        // directly (deduped inside recordStatus) or run.finished{outcome="failed"} would miss
+        // the 6-hour timeout path entirely.
+        job.setStatus(JobStatus.failed);
+        jobLifecycleMetrics.recordStatus(job);
 
         failPendingSteps(job);
 

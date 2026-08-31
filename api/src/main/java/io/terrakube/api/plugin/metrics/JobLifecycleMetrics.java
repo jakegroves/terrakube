@@ -28,8 +28,7 @@ import io.terrakube.api.rs.job.JobStatus;
  *
  * <p>Only the destination status is reliably available there, so the transition counter is keyed by
  * {@code to} alone. The {@code terrakube.run.*} family adds outcome, trigger source ({@code via}),
- * plan-only vs apply, and per-organization dimensions. Workspace identity is never a tag - it
- * belongs on a span.
+ * and per-organization dimensions. Workspace identity is never a tag - it belongs on a span.
  *
  * <p>Approval wait is tracked in an in-memory map because {@code recordStatus} cannot see when the
  * job first entered {@code waitingApproval}; entries in flight at an api restart are lost, which is
@@ -40,9 +39,15 @@ public class JobLifecycleMetrics {
 
     private static final int MAX_PENDING_APPROVALS = 10_000;
     private static final Duration STALE_APPROVAL_ENTRY = Duration.ofDays(7);
+    private static final int MAX_RECORDED_TERMINAL = 50_000;
 
     private final MeterRegistry registry;
     private final Map<Integer, Instant> waitingApprovalSince = new ConcurrentHashMap<>();
+    // Job ids whose terminal outcome has already been counted. A run finishes exactly once, but
+    // notifyStatusChanged (and the reconciliation sweeps that call recordStatus directly) can fire
+    // a terminal event for the same job more than once - without this, run.finished / run.duration
+    // would over-count. Bounded and age-evicted like waitingApprovalSince.
+    private final Map<Integer, Instant> terminalRecorded = new ConcurrentHashMap<>();
 
     public JobLifecycleMetrics(MeterRegistry registry,
                                @Qualifier("activeWorkspaceCount") Supplier<Number> activeWorkspaceCount,
@@ -85,7 +90,6 @@ public class JobLifecycleMetrics {
         if (status == JobStatus.running) {
             Counter.builder("terrakube.run.started")
                     .tag("via", via(job))
-                    .tag("plan_only", planOnly(job))
                     .tag("organization", organization)
                     .description("Runs that have begun executing")
                     .register(registry)
@@ -99,11 +103,10 @@ public class JobLifecycleMetrics {
             recordApprovalWait(job, organization);
         }
 
-        if (status.isTerminal()) {
+        if (status.isTerminal() && firstTerminalRecord(job)) {
             Counter.builder("terrakube.run.finished")
                     .tag("outcome", status.name())
                     .tag("via", via(job))
-                    .tag("plan_only", planOnly(job))
                     .tag("organization", organization)
                     .description("Runs that have reached a terminal state")
                     .register(registry)
@@ -115,7 +118,6 @@ public class JobLifecycleMetrics {
                 if (millis >= 0) {
                     Timer.builder("terrakube.run.duration")
                             .tag("outcome", status.name())
-                            .tag("plan_only", planOnly(job))
                             .tag("organization", organization)
                             .description("Wall-clock time from run creation to terminal state")
                             .register(registry)
@@ -169,12 +171,32 @@ public class JobLifecycleMetrics {
                 .record(waited);
     }
 
+    /**
+     * True the first time a given job id is seen in a terminal state, false afterwards, so the
+     * run-outcome meters are counted once per run. Jobs with an unset id (id {@code 0}, only unit
+     * tests) are always recorded. The map is bounded and age-evicted like {@link #waitingApprovalSince}.
+     */
+    private boolean firstTerminalRecord(Job job) {
+        int jobId = job.getId();
+        if (jobId == 0) {
+            return true;
+        }
+        if (terminalRecorded.putIfAbsent(jobId, Instant.now()) != null) {
+            return false;
+        }
+        if (terminalRecorded.size() > MAX_RECORDED_TERMINAL) {
+            Instant cutoff = Instant.now().minus(STALE_APPROVAL_ENTRY);
+            terminalRecorded.values().removeIf(t -> t.isBefore(cutoff));
+            terminalRecorded.entrySet().stream()
+                    .min(Map.Entry.comparingByValue())
+                    .map(Map.Entry::getKey)
+                    .ifPresent(terminalRecorded::remove);
+        }
+        return true;
+    }
+
     private static String via(Job job) {
         String via = job.getVia();
         return (via == null || via.isBlank()) ? "unknown" : via;
-    }
-
-    private static String planOnly(Job job) {
-        return String.valueOf(!job.isPlanChanges());
     }
 }

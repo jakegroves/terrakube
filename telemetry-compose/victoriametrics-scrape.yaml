@@ -1,4 +1,6 @@
 # Prometheus-format scrape config loaded by VictoriaMetrics via -promscrape.config.
+# The api / executor / registry each emit a `service` label of their own (Micrometer
+# common tag), so it is not injected here.
 global:
   scrape_interval: 15s
 scrape_configs:
@@ -6,14 +8,11 @@ scrape_configs:
     metrics_path: /actuator/prometheus
     static_configs:
       - targets: ["terrakube-api:8080"]
-        labels: { service: terrakube-api }
   - job_name: terrakube-executor
     metrics_path: /actuator/prometheus
     static_configs:
       - targets: ["terrakube-executor:8090"]
-        labels: { service: terrakube-executor }
   - job_name: terrakube-registry
     metrics_path: /actuator/prometheus
     static_configs:
       - targets: ["terrakube-registry:8075"]
-        labels: { service: terrakube-registry }

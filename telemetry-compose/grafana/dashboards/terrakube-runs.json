@@ -145,7 +145,7 @@
     {
       "id": 3,
       "type": "stat",
-      "title": "Apply runs",
+      "title": "Runs started",
       "datasource": {
         "type": "prometheus",
         "uid": "${DS_PROMETHEUS}"
@@ -158,7 +158,7 @@
       },
       "targets": [
         {
-          "expr": "sum(increase(terrakube_run_finished_total{plan_only=\"false\",organization=~\"$organization\"}[$__range]))",
+          "expr": "sum(increase(terrakube_run_started_total{organization=~\"$organization\"}[$__range]))",
           "refId": "A"
         }
       ]
@@ -166,7 +166,7 @@
     {
       "id": 4,
       "type": "stat",
-      "title": "Plan-only runs",
+      "title": "Runs awaiting approval",
       "datasource": {
         "type": "prometheus",
         "uid": "${DS_PROMETHEUS}"
@@ -179,7 +179,7 @@
       },
       "targets": [
         {
-          "expr": "sum(increase(terrakube_run_finished_total{plan_only=\"true\",organization=~\"$organization\"}[$__range]))",
+          "expr": "sum(terrakube_run_awaiting_approval)",
           "refId": "A"
         }
       ]
@@ -310,7 +310,7 @@
     {
       "id": 9,
       "type": "timeseries",
-      "title": "Plan-only vs apply per day",
+      "title": "Runs per day by trigger",
       "datasource": {
         "type": "prometheus",
         "uid": "${DS_PROMETHEUS}"
@@ -323,8 +323,8 @@
       },
       "targets": [
         {
-          "expr": "sum by (plan_only) (increase(terrakube_run_finished_total{organization=~\"$organization\"}[1d]))",
-          "legendFormat": "plan_only={{plan_only}}",
+          "expr": "sum by (via) (increase(terrakube_run_finished_total{organization=~\"$organization\"}[1d]))",
+          "legendFormat": "{{via}}",
           "refId": "A"
         }
       ]

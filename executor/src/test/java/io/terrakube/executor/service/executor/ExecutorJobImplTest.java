@@ -223,5 +223,11 @@ class ExecutorJobImplTest {
         inOrder.verify(updateJobStatus).setCompletedStatus(eq(false), eq(false), eq(-1), eq(job), any(), any(), any(), any());
         inOrder.verify(jobExecutionWatchdog).markFree();
         inOrder.verify(executorCapacityGate).release();
+
+        // The failure that most needs observing must still produce execution/exit metrics.
+        assertEquals(1.0, meterRegistry.get("terrakube.job.execution")
+                .tags("tool", "terraform", "step", "plan", "result", "failure").timer().count());
+        assertEquals(1.0, meterRegistry.get("terrakube.job.exit")
+                .tags("tool", "terraform", "exit_code_class", "error").counter().count());
     }
 }

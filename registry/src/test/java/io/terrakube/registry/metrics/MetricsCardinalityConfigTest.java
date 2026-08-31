@@ -2,6 +2,9 @@ package io.terrakube.registry.metrics;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import java.time.Duration;
+import java.util.concurrent.atomic.AtomicLong;
+
 import org.junit.jupiter.api.Test;
 
 import io.micrometer.core.instrument.Counter;
@@ -45,5 +48,20 @@ class MetricsCardinalityConfigTest {
         Counter.builder("terrakube.plain").tag("k", "v1").register(registry);
         Counter.builder("terrakube.plain").tag("k", "v2").register(registry);
         assertThat(registry.find("terrakube.plain").counters()).hasSize(2);
+    }
+    @Test
+    void readmitsAnOrganizationOnceStaleValuesAgeOutOfTheRetentionWindow() {
+        AtomicLong clock = new AtomicLong(0);
+        SimpleMeterRegistry registry = new SimpleMeterRegistry();
+        registry.config().meterFilter(new MetricsCardinalityConfig.OrganizationTagCardinalityFilter(
+                1, Duration.ofHours(2), clock::get));
+
+        Counter.builder("terrakube.registry.download").tag("organization", "a").register(registry);
+        Counter.builder("terrakube.registry.download").tag("organization", "b").register(registry);
+        assertThat(registry.find("terrakube.registry.download").counters()).hasSize(1);
+
+        clock.set(Duration.ofHours(3).toNanos());
+        Counter.builder("terrakube.registry.download").tag("organization", "c").register(registry);
+        assertThat(registry.find("terrakube.registry.download").tags("organization", "c").counter()).isNotNull();
     }
 }

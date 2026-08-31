@@ -38,13 +38,18 @@ public class ModuleWebServiceImpl {
         Timer.Sample resolveSample = registryMetrics.startResolve();
         VersionsDTO versionsDTO = new VersionsDTO();
         List<VersionDTO> versionDTOList = new ArrayList<>();
-        for (String availableVersion : moduleService.getAvailableVersions(organization, module, provider)) {
-            VersionDTO version = new VersionDTO();
-            version.setVersion(availableVersion);
+        try {
+            for (String availableVersion : moduleService.getAvailableVersions(organization, module, provider)) {
+                VersionDTO version = new VersionDTO();
+                version.setVersion(availableVersion);
 
-            versionDTOList.add(version);
+                versionDTOList.add(version);
+            }
+        } finally {
+            // Always stop the timer - a lookup failure during a registry-backend incident is
+            // exactly when resolution latency needs to be visible.
+            registryMetrics.stopResolve(resolveSample, "module", organization);
         }
-        registryMetrics.stopResolve(resolveSample, "module", organization);
         versionsDTO.setVersions(versionDTOList);
         ModuleDTO moduleDTO = new ModuleDTO();
         moduleDTO.setModules(Arrays.asList(versionsDTO));

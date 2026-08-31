@@ -50,6 +50,7 @@ class JobReconciliationSweepTest {
     ReconciliationProperties properties;
     JobReconciliationService reconciliationService;
     JobReconciliationMetrics metrics;
+    io.terrakube.api.plugin.metrics.JobLifecycleMetrics jobLifecycleMetrics;
 
     @BeforeEach
     void setup() {
@@ -63,6 +64,7 @@ class JobReconciliationSweepTest {
         reconciliationService = mock(JobReconciliationService.class, new FailUnkownMethod<JobReconciliationService>());
         properties = new ReconciliationProperties();
         metrics = new JobReconciliationMetrics(new io.micrometer.core.instrument.simple.SimpleMeterRegistry());
+        jobLifecycleMetrics = mock(io.terrakube.api.plugin.metrics.JobLifecycleMetrics.class);
         lenient().doReturn(valueOperations).when(redisTemplate).opsForValue();
         lenient().doAnswer(invocation -> invocation.getArgument(0)).when(workspaceRepository).save(any());
         // Default: jobs have no steps, so the zero-pending reconciliation pass is a no-op unless a
@@ -83,7 +85,7 @@ class JobReconciliationSweepTest {
 
     private JobReconciliationSweep subject() {
         return new JobReconciliationSweep(jobRepository, stepRepository, workspaceRepository, scheduler,
-                scheduleJobService, redisTemplate, properties, reconciliationService, metrics);
+                scheduleJobService, redisTemplate, properties, reconciliationService, metrics, jobLifecycleMetrics);
     }
 
     private Job job(int id, JobStatus status) {
@@ -193,6 +195,10 @@ class JobReconciliationSweepTest {
         // UI would keep showing the job's previous status (e.g. "running") forever.
         org.junit.jupiter.api.Assertions.assertEquals(JobStatus.failed, running.getWorkspace().getLastJobStatus());
         verify(workspaceRepository, times(1)).save(running.getWorkspace());
+        // the bulk update also bypasses JobNotificationTrigger, so the terminal outcome is
+        // recorded here directly or run.finished{outcome="failed"} would miss executor crashes.
+        org.junit.jupiter.api.Assertions.assertEquals(JobStatus.failed, running.getStatus());
+        verify(jobLifecycleMetrics, times(1)).recordStatus(running);
     }
 
     @Test
@@ -215,7 +221,7 @@ class JobReconciliationSweepTest {
     void respectsCustomConfiguredHeartbeatGracePeriod() throws Exception {
         JobReconciliationSweep customSweep = new JobReconciliationSweep(
                 jobRepository, stepRepository, workspaceRepository, scheduler, scheduleJobService, redisTemplate,
-                properties, reconciliationService, metrics, 600);
+                properties, reconciliationService, metrics, jobLifecycleMetrics, 600);
 
         Job running = job(30, JobStatus.running);
         running.setUpdatedDate(new Date(System.currentTimeMillis() - 450_000)); // 450s old (< 600s)

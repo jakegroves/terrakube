@@ -1,5 +1,6 @@
 package io.terrakube.api.plugin.scheduler.reconciliation;
 
+import io.terrakube.api.plugin.metrics.JobLifecycleMetrics;
 import io.terrakube.api.plugin.scheduler.ScheduleJobService;
 import io.terrakube.api.repository.JobRepository;
 import io.terrakube.api.repository.StepRepository;
@@ -72,6 +73,7 @@ public class JobReconciliationSweep implements org.quartz.Job {
     ReconciliationProperties properties;
     JobReconciliationService reconciliationService;
     JobReconciliationMetrics metrics;
+    JobLifecycleMetrics jobLifecycleMetrics;
     Duration heartbeatGracePeriod;
 
     @Autowired
@@ -85,6 +87,7 @@ public class JobReconciliationSweep implements org.quartz.Job {
             ReconciliationProperties properties,
             JobReconciliationService reconciliationService,
             JobReconciliationMetrics metrics,
+            JobLifecycleMetrics jobLifecycleMetrics,
             @Value("${io.terrakube.scheduler.reconciliation.heartbeat-grace-period-seconds:${ReconciliationHeartbeatGracePeriodSeconds:300}}") long heartbeatGracePeriodSeconds) {
         this.jobRepository = jobRepository;
         this.stepRepository = stepRepository;
@@ -95,6 +98,7 @@ public class JobReconciliationSweep implements org.quartz.Job {
         this.properties = properties;
         this.reconciliationService = reconciliationService;
         this.metrics = metrics;
+        this.jobLifecycleMetrics = jobLifecycleMetrics;
         this.heartbeatGracePeriod = Duration.ofSeconds(heartbeatGracePeriodSeconds);
     }
 
@@ -107,8 +111,9 @@ public class JobReconciliationSweep implements org.quartz.Job {
             RedisTemplate<String, Object> redisTemplate,
             ReconciliationProperties properties,
             JobReconciliationService reconciliationService,
-            JobReconciliationMetrics metrics) {
-        this(jobRepository, stepRepository, workspaceRepository, scheduler, scheduleJobService, redisTemplate, properties, reconciliationService, metrics, 300);
+            JobReconciliationMetrics metrics,
+            JobLifecycleMetrics jobLifecycleMetrics) {
+        this(jobRepository, stepRepository, workspaceRepository, scheduler, scheduleJobService, redisTemplate, properties, reconciliationService, metrics, jobLifecycleMetrics, 300);
     }
 
     @Transactional
@@ -288,6 +293,10 @@ public class JobReconciliationSweep implements org.quartz.Job {
         // normally keeps workspace.lastJobStatus in sync on every entity-managed job update), so
         // without this the workspace list UI would keep showing the job's previous status
         // (typically "running") forever after this sweep fails it.
+        // Same bypass means JobNotificationTrigger never sees this transition, so record the
+        // terminal outcome directly (deduped inside recordStatus if it is also seen elsewhere).
+        job.setStatus(JobStatus.failed);
+        jobLifecycleMetrics.recordStatus(job);
         Workspace workspace = job.getWorkspace();
         if (workspace != null) {
             workspace.setLastJobStatus(JobStatus.failed);
