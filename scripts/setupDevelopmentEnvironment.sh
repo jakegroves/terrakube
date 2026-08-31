@@ -41,7 +41,11 @@ function generateApiVars() {
 		TerrakubeUiURL="http://localhost:3000"
 	fi
 
-  TerrakubeRedisHostname=terrakube-redis
+	if [ "$CODESPACES" = "true" ] || [ "$USER" = "vscode" ]; then
+		TerrakubeRedisHostname=terrakube-redis
+	else
+		TerrakubeRedisHostname="${TERRAKUBE_REDIS_HOSTNAME:-localhost}"
+	fi
 	GroupValidationType="DEX"
 	UserValidationType="DEX"
 	AuthenticationValidationType="DEX"
@@ -119,8 +123,8 @@ function generateApiVars() {
 	echo "TerrakubeRedisPort=6379" >>.envApi
 	echo "TerrakubeRedisSSL=false" >>.envApi
 	echo "#TerrakubeRedisUsername=default" >>.envApi
-	echo "DynamicCredentialPublicKeyPath=/workspaces/terrakube/public.pem" >>.envApi
-	echo "DynamicCredentialPrivateKeyPath=/workspaces/terrakube/private.pem" >>.envApi
+	echo "DynamicCredentialPublicKeyPath=$(pwd)/public.pem" >>.envApi
+	echo "DynamicCredentialPrivateKeyPath=$(pwd)/private.pem" >>.envApi
 	echo "TerrakubeRedisPassword=password123456" >>.envApi
 	echo "#TERRAKUBE_ADMIN_GROUP=$TERRAKUBE_ADMIN_GROUP" >>.envApi
 }
@@ -159,7 +163,11 @@ function generateExecutorVars() {
 		TerraformOutputType=LocalTerraformOutputImpl
 	fi
 
-  TerrakubeRedisHostname=terrakube-redis
+	if [ "$CODESPACES" = "true" ] || [ "$USER" = "vscode" ]; then
+		TerrakubeRedisHostname=terrakube-redis
+	else
+		TerrakubeRedisHostname="${TERRAKUBE_REDIS_HOSTNAME:-localhost}"
+	fi
 	TerrakubeEnableSecurity=true
 	InternalSecret=S2JeOGNNZXJQTlpWNmhTITkha2NEKkt1VVBVQmFeQjM=
 
@@ -215,7 +223,7 @@ function generateExecutorVars() {
 	echo "TerrakubeRedisSSL=false" >>.envExecutor
 	echo "TerrakubeRedisUsername=default" >>.envExecutor
 	echo "TerrakubeRedisPassword=password123456" >>.envExecutor
-	echo "JAVA_TOOL_OPTIONS=$JAVA_TOOL_OPTIONS" >>.envExecutor
+	echo "JAVA_TOOL_OPTIONS=\"$JAVA_TOOL_OPTIONS\"" >>.envExecutor
 }
 
 function generateRegistryVars() {
@@ -236,8 +244,8 @@ function generateRegistryVars() {
 		AzBuilderRegistry="http://localhost:8075"
 		AzBuilderApiUrl="http://localhost:8080"
 		DexIssuerUri="http://localhost:5556/dex"
-		TerrakubeUiURL="http://locahost:3000"
-		AppIssuerUri="https://localhost:5556/dex"
+		TerrakubeUiURL="http://localhost:3000"
+		AppIssuerUri="http://localhost:5556/dex"
 	fi
 
 	if [ "$storage_value" = "MINIO" ]; then
@@ -282,7 +290,7 @@ function generateRegistryVars() {
 	echo "AzureAccountKey=$AzureAccountKey" >>.envRegistry
 	echo "AzureConnectionString=$AzureConnectionString" >>.envRegistry
 	echo "AzureCustomConnectionString=true" >>.envRegistry
-	echo "JAVA_TOOL_OPTIONS=$JAVA_TOOL_OPTIONS" >>.envRegistry
+	echo "JAVA_TOOL_OPTIONS=\"$JAVA_TOOL_OPTIONS\"" >>.envRegistry
 }
 
 function generateUiVars() {
