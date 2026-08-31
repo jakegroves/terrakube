@@ -109,6 +109,9 @@ public class RegistryAuthenticationManagerResolver implements AuthenticationMana
                 providerManager = new ProviderManager(new JwtAuthenticationProvider(getJwtEncoder(jwtInternal)));
                 break;
             case jwtPat:
+                // pat.last_used_at is stamped by the API auth path only (see
+                // DexAuthenticationManagerResolver#stampLastUsed). The registry has no
+                // PatRepository, and the API path already captures the "token in use" signal.
                 providerManager = new ProviderManager(new JwtAuthenticationProvider(getJwtEncoder(jwtPat)));
                 break;
             default:
