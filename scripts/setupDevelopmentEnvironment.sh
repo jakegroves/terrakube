@@ -300,11 +300,16 @@ function generateUiVars() {
 		REACT_CONFIG_REDIRECT="https://$CODESPACE_NAME-3000.app.github.dev"
 		REACT_CONFIG_REGISTRY_URI="https://$CODESPACE_NAME-8075.app.github.dev"
 		REACT_CONFIG_AUTHORITY="https://$CODESPACE_NAME-5556.app.github.dev/dex"
-	else
+	elif [ "$USER" = "vscode" ]; then
 		REACT_CONFIG_TERRAKUBE_URL="https://terrakube-api.platform.local/api/v1/"
 		REACT_CONFIG_REDIRECT="https://terrakube.platform.local"
 		REACT_CONFIG_REGISTRY_URI="https://terrakube-registry.platform.local"
 		REACT_CONFIG_AUTHORITY="https://terrakube-dex.platform.local/dex"
+	else
+		REACT_CONFIG_TERRAKUBE_URL="http://localhost:8080/api/v1/"
+		REACT_CONFIG_REDIRECT="http://localhost:3000"
+		REACT_CONFIG_REGISTRY_URI="http://localhost:8075"
+		REACT_CONFIG_AUTHORITY="http://localhost:5556/dex"
 	fi
 
 	REACT_CONFIG_CLIENT_ID="example-app"
@@ -374,6 +379,10 @@ function generateDexConfiguration() {
 	  echo "Echo using local devcontainer"
 		jwtIssuer="https://terrakube-dex.platform.local"
 		uiRedirect="https://terrakube.platform.local"
+	else
+		echo "Using localhost dex configuration (host run)"
+		jwtIssuer="http://localhost:5556"
+		uiRedirect="http://localhost:3000"
 	fi
 
 	sed -i "s+TEMPLATE_DEVCONTAINER_JWT_ISSUER+$jwtIssuer+gi" scripts/setup/devcontainer/config-ldap.yaml
@@ -436,25 +445,38 @@ function generateObservabilityVars() {
 
 	# generate{Api,Executor,Registry}Vars have already (re)written each env file from
 	# scratch this run, so the JAVA_TOOL_OPTIONS line here is the pristine one - capture
-	# it, drop it, and prepend the -javaagent flag.
+	# it (stripping surrounding quotes), drop it, and prepend the -javaagent flag.
 	for svc in api executor registry; do
 		envfile=".env$(echo "$svc" | sed 's/^./\U&/')"   # .envApi / .envExecutor / .envRegistry
-		prev_jto="$(grep '^JAVA_TOOL_OPTIONS=' "$envfile" | tail -1 | sed 's/^JAVA_TOOL_OPTIONS=//; s|-javaagent:[^ ]*opentelemetry-javaagent\.jar *||g')"
+		prev_jto="$(grep '^JAVA_TOOL_OPTIONS=' "$envfile" | tail -1 | sed 's/^JAVA_TOOL_OPTIONS=//; s/^"//; s/"$//; s|-javaagent:[^ ]*opentelemetry-javaagent\.jar *||g')"
 		sed -i '/^JAVA_TOOL_OPTIONS=/d; /^OTEL_/d' "$envfile"
 		{
-			echo "JAVA_TOOL_OPTIONS=-javaagent:$OTEL_AGENT_JAR${prev_jto:+ $prev_jto}"
+			echo "JAVA_TOOL_OPTIONS=\"-javaagent:$OTEL_AGENT_JAR${prev_jto:+ $prev_jto}\""
 			echo "OTEL_SERVICE_NAME=terrakube-$svc"
 			echo "OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4318"
 			echo "OTEL_EXPORTER_OTLP_PROTOCOL=http/protobuf"
 			echo "OTEL_TRACES_EXPORTER=otlp"
 			echo "OTEL_METRICS_EXPORTER=none"
 			echo "OTEL_LOGS_EXPORTER=otlp"
-			echo "OTEL_INSTRUMENTATION_LOGBACK-APPENDER_ENABLED=true"
-			echo "OTEL_INSTRUMENTATION_LOGBACK-MDC_ENABLED=true"
+			echo "OTEL_INSTRUMENTATION_LOGBACK_APPENDER_ENABLED=true"
+			echo "OTEL_INSTRUMENTATION_LOGBACK_MDC_ENABLED=true"
 			echo "OTEL_TRACES_SAMPLER=parentbased_always_on"
 			echo "OTEL_RESOURCE_ATTRIBUTES=service.namespace=terrakube,deployment.environment=local"
 		} >>"$envfile"
 	done
+
+	# The api runs the `demo` Spring profile, which disables the actuator endpoints
+	# (enabled-by-default=false, include=health), so /actuator/prometheus 404s and
+	# the scraper gets nothing. Re-expose the metrics endpoint. Space-free relaxed-
+	# binding env vars beat the profile property file and survive `source`.
+	# (registry runs the default profile, executor has no demo profile - both fine.)
+	if ! grep -q '^MANAGEMENT_ENDPOINT_PROMETHEUS_ENABLED=' .envApi; then
+		{
+			echo 'MANAGEMENT_ENDPOINTS_WEB_EXPOSURE_INCLUDE=health,prometheus,info'
+			echo 'MANAGEMENT_ENDPOINT_PROMETHEUS_ENABLED=true'
+			echo 'MANAGEMENT_PROMETHEUS_METRICS_EXPORT_ENABLED=true'
+		} >>.envApi
+	fi
 
 	sed -i '/^REACT_APP_OTEL_/d' .envUi
 	{
