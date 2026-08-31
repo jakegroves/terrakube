@@ -1,0 +1,20 @@
+# Extra infra for the host from-source loop (dev-fromsource.sh).
+#
+# dex + ldap already come from scripts/setup/devcontainer/docker-compose.yaml.
+# The api "demo" profile also needs Redis, which neither that stack nor
+# telemetry-compose/backend.yml provides. dev-fromsource.sh only starts this
+# when nothing is already listening on localhost:6379 (a host redis-server is
+# fine too); either way it clears TerrakubeRedisPassword in the generated env.
+#
+#   docker compose -f .devcontainer/fromsource-infra.yml up -d
+
+name: terrakube-fromsource-infra
+
+services:
+  redis:
+    image: docker.io/valkey/valkey:8-alpine
+    container_name: terrakube-fromsource-redis
+    command: ["valkey-server", "--save", ""]
+    ports:
+      - "6379:6379"
+    mem_limit: 96m
