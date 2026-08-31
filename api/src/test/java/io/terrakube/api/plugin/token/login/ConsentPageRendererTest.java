@@ -21,6 +21,15 @@ class ConsentPageRendererTest {
     }
 
     @Test
+    void consentPageIsBrandedWithAnOptionalNameField() {
+        String html = r.renderConsent("alice@example.io", 30, 90, null);
+        assertTrue(html.contains("TERRAKUBE"));               // inline logo wordmark
+        assertTrue(html.contains("prefers-color-scheme:dark")); // theme-aware
+        assertTrue(html.contains("name=\"name\""));            // optional token-name input
+        assertTrue(html.contains("id=\"days\""));
+    }
+
+    @Test
     void escapesEmailAndError() {
         String html = r.renderConsent("<script>x</script>@e.io", 30, 90, "bad & wrong");
         assertFalse(html.contains("<script>x</script>"));

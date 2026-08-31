@@ -27,6 +27,7 @@
             <column name="identity_name" type="varchar(255)"/>
             <column name="identity_groups" type="text"/>
             <column name="chosen_days" type="int"/>
+            <column name="chosen_name" type="varchar(64)"/>
             <column name="auth_code_hash" type="varchar(64)"/>
             <column name="code_expires_at" type="datetime"/>
             <column name="expires_at" type="datetime">

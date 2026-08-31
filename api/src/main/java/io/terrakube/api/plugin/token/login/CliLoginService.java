@@ -123,7 +123,7 @@ public class CliLoginService {
     }
 
     @Transactional
-    public String authorize(String sessionId, int days) {
+    public String authorize(String sessionId, int days, String tokenName) {
         CliAuthSession session = requireConsentSession(sessionId);
         if (days < 1 || days > loginProperties.getMaxDays()) {
             throw new BrokerBadRequestException("days must be between 1 and " + loginProperties.getMaxDays());
@@ -131,10 +131,22 @@ public class CliLoginService {
         String code = randomToken();
         session.setAuthCodeHash(sha256Hex(code));
         session.setChosenDays(days);
+        session.setChosenName(sanitizeTokenName(tokenName));
         session.setStatus(CliAuthSessionStatus.CODE_ISSUED);
         session.setCodeExpiresAt(new Date(System.currentTimeMillis() + CODE_TTL_MS));
         repository.save(session);
         return session.getCliRedirectUri() + "?code=" + urlEnc(code) + "&state=" + urlEnc(session.getCliState());
+    }
+
+    private static String sanitizeTokenName(String raw) {
+        if (raw == null) {
+            return null;
+        }
+        String trimmed = raw.strip().replaceAll("[\\p{Cntrl}]", "");
+        if (trimmed.isEmpty()) {
+            return null;
+        }
+        return trimmed.length() > 64 ? trimmed.substring(0, 64) : trimmed;
     }
 
     @Transactional
@@ -170,13 +182,18 @@ public class CliLoginService {
         } catch (Exception e) {
             groups = List.of();
         }
-        String description = "terraform login " + DateTimeFormatter.ISO_LOCAL_DATE
-            .withZone(ZoneOffset.UTC).format(Instant.now());
+        String description = session.getChosenName() != null
+            ? session.getChosenName()
+            : "terraform login " + DateTimeFormatter.ISO_LOCAL_DATE
+                .withZone(ZoneOffset.UTC).format(Instant.now());
         String jws = patService.createToken(session.getChosenDays(), description,
             session.getIdentityName(), session.getIdentityEmail(), groups, "CLI_LOGIN");
         if (jws == null || jws.isBlank()) {
             throw new BrokerUpstreamException("token generation failed");
         }
+        // The token is minted from an unauthenticated endpoint; attribute the pat row to the
+        // user who authenticated upstream so the audit trail shows who authorized it.
+        patService.attributeTo(jtiOf(jws), session.getIdentityEmail());
 
         session.setStatus(CliAuthSessionStatus.EXCHANGED);
         repository.save(session);
@@ -210,6 +227,11 @@ public class CliLoginService {
         byte[] b = new byte[32];
         RANDOM.nextBytes(b);
         return Base64.getUrlEncoder().withoutPadding().encodeToString(b);
+    }
+
+    private static UUID jtiOf(String jws) {
+        String payload = new String(Base64.getUrlDecoder().decode(jws.split("\\.")[1]), StandardCharsets.UTF_8);
+        return UUID.fromString(payload.replaceAll(".*\"jti\":\"([^\"]+)\".*", "$1"));
     }
 
     static String sha256Hex(String input) {

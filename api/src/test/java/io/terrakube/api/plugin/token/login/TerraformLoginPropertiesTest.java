@@ -45,4 +45,28 @@ class TerraformLoginPropertiesTest {
         p.setEnabled(false);
         assertDoesNotThrow(p::normalize);
     }
+
+    @Test
+    void enabledWithPlainHttpNonLoopbackFailsFast() {
+        TerraformLoginProperties p = new TerraformLoginProperties();
+        p.setEnabled(true);
+        p.setApiUrl("http://terrakube-api.example.com");
+        assertThrows(IllegalStateException.class, p::normalize);
+    }
+
+    @Test
+    void enabledWithHttpsIsFine() {
+        TerraformLoginProperties p = new TerraformLoginProperties();
+        p.setEnabled(true);
+        p.setApiUrl("https://terrakube-api.example.com");
+        assertDoesNotThrow(p::normalize);
+    }
+
+    @Test
+    void enabledWithPlainHttpLoopbackIsFineForLocalDev() {
+        TerraformLoginProperties p = new TerraformLoginProperties();
+        p.setEnabled(true);
+        p.setApiUrl("http://localhost:8080");
+        assertDoesNotThrow(p::normalize);
+    }
 }

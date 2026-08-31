@@ -81,6 +81,7 @@ public class OAuthBrokerController {
             @CookieValue(value = CliLoginCookie.COOKIE_NAME, required = false) String cookie,
             @RequestParam("decision") String decision,
             @RequestParam(value = "days", required = false, defaultValue = "0") int days,
+            @RequestParam(value = "name", required = false) String name,
             HttpServletRequest request) {
         Optional<String> sessionId = cliLoginCookie.verify(cookie);
         if (sessionId.isEmpty()) {
@@ -92,7 +93,7 @@ public class OAuthBrokerController {
         try {
             String location = "deny".equals(decision)
                 ? cliLoginService.deny(sessionId.get())
-                : cliLoginService.authorize(sessionId.get(), days);
+                : cliLoginService.authorize(sessionId.get(), days, name);
             return ResponseEntity.status(HttpStatus.FOUND).location(URI.create(location)).build();
         } catch (BrokerBadRequestException e) {
             try {

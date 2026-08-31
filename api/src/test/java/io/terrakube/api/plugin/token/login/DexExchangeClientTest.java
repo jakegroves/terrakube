@@ -31,7 +31,7 @@ class DexExchangeClientTest {
         issuer = "http://localhost:" + wm.port() + "/dex";
         TerraformLoginProperties props = new TerraformLoginProperties();
         props.setEnabled(true);
-        props.setApiUrl("http://api.local");
+        props.setApiUrl("https://api.local");
         props.normalize();
         client = new DexExchangeClient(props, issuer, "terrakube-app");
     }
@@ -47,7 +47,7 @@ class DexExchangeClientTest {
         assertTrue(url.startsWith(issuer + "/auth?"));
         assertTrue(url.contains("response_type=code"));
         assertTrue(url.contains("client_id=terrakube-app"));
-        assertTrue(url.contains("redirect_uri=http%3A%2F%2Fapi.local%2Foauth%2Fcallback"));
+        assertTrue(url.contains("redirect_uri=https%3A%2F%2Fapi.local%2Foauth%2Fcallback"));
         assertTrue(url.contains("code_challenge=challenge-abc"));
         assertTrue(url.contains("code_challenge_method=S256"));
         assertTrue(url.contains("state=state-123"));

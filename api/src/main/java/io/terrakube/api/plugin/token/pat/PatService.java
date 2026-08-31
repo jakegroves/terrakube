@@ -90,6 +90,23 @@ public class PatService {
         });
     }
 
+    /**
+     * Attribute a token to a user after the fact. Needed when the token is minted from an
+     * unauthenticated endpoint (the terraform login broker), where the auditing listener would
+     * otherwise record created_by as "Internal". @CreatedBy is only populated on insert, so this
+     * explicit set on a subsequent save sticks.
+     */
+    public void attributeTo(UUID patId, String userEmail) {
+        if (userEmail == null || userEmail.isBlank()) {
+            return;
+        }
+        patRepository.findById(patId).ifPresent(pat -> {
+            pat.setCreatedBy(userEmail);
+            pat.setUpdatedBy(userEmail);
+            patRepository.save(pat);
+        });
+    }
+
 
     public boolean deleteToken(String tokenId){
         Optional<Pat> searchPat = patRepository.findById(UUID.fromString(tokenId));

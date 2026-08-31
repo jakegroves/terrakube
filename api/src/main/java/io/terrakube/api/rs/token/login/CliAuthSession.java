@@ -51,6 +51,9 @@ public class CliAuthSession extends GenericAuditFields {
     @Column(name = "chosen_days")
     private Integer chosenDays;
 
+    @Column(name = "chosen_name")
+    private String chosenName;
+
     @Column(name = "auth_code_hash")
     private String authCodeHash;
 

@@ -31,6 +31,9 @@ class TerraformLoginBrokerIntegrationTests extends ServerApplicationTests {
     @MockitoBean
     DexExchangeClient dexExchangeClient;
 
+    @org.springframework.beans.factory.annotation.Autowired
+    io.terrakube.api.repository.PatRepository patRepository;
+
     private void stubDex(DexIdentity identity) {
         when(dexExchangeClient.issuerUri()).thenReturn("http://localhost/dex");
         when(dexExchangeClient.buildAuthorizeRedirect(anyString(), anyString()))
@@ -71,7 +74,7 @@ class TerraformLoginBrokerIntegrationTests extends ServerApplicationTests {
             .cookie("tk_cli_login", session.getValue())
             .header("Origin", "http://localhost:8080")
             .contentType("application/x-www-form-urlencoded")
-            .formParam("decision", "authorize").formParam("days", "45")
+            .formParam("decision", "authorize").formParam("days", "45").formParam("name", "work-laptop")
             .when().post("/oauth/consent");
         consent.then().statusCode(302)
             .header("Location", startsWith("http://localhost:10005/login?code="))
@@ -96,6 +99,11 @@ class TerraformLoginBrokerIntegrationTests extends ServerApplicationTests {
 
         String jti = new String(Base64.getUrlDecoder().decode(token.split("\\.")[1]))
             .replaceAll(".*\"jti\":\"([^\"]+)\".*", "$1");
+        io.terrakube.api.rs.token.pat.Pat pat =
+            patRepository.findById(java.util.UUID.fromString(jti)).orElseThrow();
+        org.junit.jupiter.api.Assertions.assertEquals("work-laptop", pat.getDescription());
+        org.junit.jupiter.api.Assertions.assertEquals("alice@terrakube.io", pat.getCreatedBy());
+
         given().header("Authorization", "Bearer " + generatePAT("TERRAKUBE_DEVELOPERS"))
             .when().delete("/pat/v1/" + jti).then().statusCode(anyOf(is(202), is(200)));
         given().header("Authorization", "Bearer " + token)
