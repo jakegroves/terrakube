@@ -28,7 +28,15 @@ public class MetricsCardinalityConfig {
 
     @Bean
     MeterFilter cardinalityMeterFilter(
-            @Value("${io.terrakube.metrics.max-organization-tags:200}") int maxOrganizationTags) {
+            @Value("${io.terrakube.metrics.max-organization-tags:200}") int maxOrganizationTags,
+            @Value("${io.terrakube.observability.metrics.enabled:false}") boolean metricsEnabled) {
+        if (!metricsEnabled) {
+            return MeterFilter.denyNameStartsWith("terrakube.");
+        }
+        return new OrganizationTagCardinalityFilter(maxOrganizationTags);
+    }
+
+    MeterFilter cardinalityMeterFilter(int maxOrganizationTags) {
         return new OrganizationTagCardinalityFilter(maxOrganizationTags);
     }
 
