@@ -16,7 +16,8 @@ import io.restassured.RestAssured;
  * full-context pattern as {@link io.terrakube.registry.OpenRegistryApplicationTests}; the "test"
  * profile selects LOCAL auth, which permits all requests.
  */
-@SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
+@SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT,
+        properties = "TerrakubePrometheusEnabled=true")
 @ActiveProfiles("test")
 class PrometheusEndpointTest {
 

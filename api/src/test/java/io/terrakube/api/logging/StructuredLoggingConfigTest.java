@@ -19,10 +19,10 @@ import org.junit.jupiter.api.Test;
 class StructuredLoggingConfigTest {
 
     @Test
-    void defaultProfileEmitsEcsJsonToConsole() throws IOException {
+    void defaultProfileKeepsTheConsoleFormatOptIn() throws IOException {
         String properties = Files.readString(Path.of("src/main/resources/application.properties"));
 
-        assertThat(properties).contains("logging.structured.format.console=ecs");
+        assertThat(properties).contains("logging.structured.format.console=${TerrakubeStructuredLoggingFormat:}");
     }
 
     @Test

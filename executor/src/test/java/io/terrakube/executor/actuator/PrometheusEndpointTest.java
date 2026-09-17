@@ -33,12 +33,12 @@ class PrometheusEndpointTest {
     }
 
     @Test
-    void applicationPropertiesExposesAndEnablesThePrometheusEndpoint() throws IOException {
+    void applicationPropertiesExposesAndMakesThePrometheusEndpointOptIn() throws IOException {
         String properties = Files.readString(Path.of("src/main/resources/application.properties"));
 
         // Both are required: exposure puts it on the web, and - because enabled-by-default is
         // false - the endpoint must also be individually enabled or it 404s.
         assertThat(properties).contains("management.endpoints.web.exposure.include=health,prometheus,info");
-        assertThat(properties).contains("management.endpoint.prometheus.enabled=true");
+        assertThat(properties).contains("management.endpoint.prometheus.enabled=${TerrakubePrometheusEnabled:false}");
     }
 }
