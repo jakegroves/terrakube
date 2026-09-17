@@ -3,13 +3,13 @@ package io.terrakube.api.plugin.metrics;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.Date;
-import java.util.Map;
-import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.Supplier;
 
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.stereotype.Component;
 
+import com.github.benmanes.caffeine.cache.Cache;
+import com.github.benmanes.caffeine.cache.Caffeine;
 import io.micrometer.core.instrument.Counter;
 import io.micrometer.core.instrument.Gauge;
 import io.micrometer.core.instrument.MeterRegistry;
@@ -30,7 +30,7 @@ import io.terrakube.api.rs.job.JobStatus;
  * {@code to} alone. The {@code terrakube.run.*} family adds outcome, trigger source ({@code via}),
  * and per-organization dimensions. Workspace identity is never a tag - it belongs on a span.
  *
- * <p>Approval wait is tracked in an in-memory map because {@code recordStatus} cannot see when the
+ * <p>Approval wait is tracked in a bounded, expiring in-memory cache because {@code recordStatus} cannot see when the
  * job first entered {@code waitingApproval}; entries in flight at an api restart are lost, which is
  * acceptable for a latency histogram.
  */
@@ -42,12 +42,18 @@ public class JobLifecycleMetrics {
     private static final int MAX_RECORDED_TERMINAL = 50_000;
 
     private final MeterRegistry registry;
-    private final Map<Integer, Instant> waitingApprovalSince = new ConcurrentHashMap<>();
+    private final Cache<Integer, Instant> waitingApprovalSince = Caffeine.newBuilder()
+            .maximumSize(MAX_PENDING_APPROVALS)
+            .expireAfterWrite(STALE_APPROVAL_ENTRY)
+            .build();
     // Job ids whose terminal outcome has already been counted. A run finishes exactly once, but
     // notifyStatusChanged (and the reconciliation sweeps that call recordStatus directly) can fire
     // a terminal event for the same job more than once - without this, run.finished / run.duration
-    // would over-count. Bounded and age-evicted like waitingApprovalSince.
-    private final Map<Integer, Instant> terminalRecorded = new ConcurrentHashMap<>();
+    // would over-count. Caffeine handles eviction off the status-transition hot path.
+    private final Cache<Integer, Instant> terminalRecorded = Caffeine.newBuilder()
+            .maximumSize(MAX_RECORDED_TERMINAL)
+            .expireAfterWrite(STALE_APPROVAL_ENTRY)
+            .build();
 
     public JobLifecycleMetrics(MeterRegistry registry,
                                @Qualifier("activeWorkspaceCount") Supplier<Number> activeWorkspaceCount,
@@ -144,19 +150,11 @@ public class JobLifecycleMetrics {
     }
 
     private void rememberWaitingApproval(Job job) {
-        if (waitingApprovalSince.size() >= MAX_PENDING_APPROVALS) {
-            waitingApprovalSince.entrySet().stream()
-                    .min(Map.Entry.comparingByValue())
-                    .map(Map.Entry::getKey)
-                    .ifPresent(waitingApprovalSince::remove);
-        }
-        Instant cutoff = Instant.now().minus(STALE_APPROVAL_ENTRY);
-        waitingApprovalSince.values().removeIf(t -> t.isBefore(cutoff));
         waitingApprovalSince.put(job.getId(), Instant.now());
     }
 
     private void recordApprovalWait(Job job, String organization) {
-        Instant since = waitingApprovalSince.remove(job.getId());
+        Instant since = waitingApprovalSince.asMap().remove(job.getId());
         if (since == null) {
             return;
         }
@@ -174,23 +172,15 @@ public class JobLifecycleMetrics {
     /**
      * True the first time a given job id is seen in a terminal state, false afterwards, so the
      * run-outcome meters are counted once per run. Jobs with an unset id (id {@code 0}, only unit
-     * tests) are always recorded. The map is bounded and age-evicted like {@link #waitingApprovalSince}.
+     * tests) are always recorded. The cache is bounded and age-expired like {@link #waitingApprovalSince}.
      */
     private boolean firstTerminalRecord(Job job) {
         int jobId = job.getId();
         if (jobId == 0) {
             return true;
         }
-        if (terminalRecorded.putIfAbsent(jobId, Instant.now()) != null) {
+        if (terminalRecorded.asMap().putIfAbsent(jobId, Instant.now()) != null) {
             return false;
-        }
-        if (terminalRecorded.size() > MAX_RECORDED_TERMINAL) {
-            Instant cutoff = Instant.now().minus(STALE_APPROVAL_ENTRY);
-            terminalRecorded.values().removeIf(t -> t.isBefore(cutoff));
-            terminalRecorded.entrySet().stream()
-                    .min(Map.Entry.comparingByValue())
-                    .map(Map.Entry::getKey)
-                    .ifPresent(terminalRecorded::remove);
         }
         return true;
     }

@@ -2,9 +2,6 @@ package io.terrakube.registry.metrics;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-import java.time.Duration;
-import java.util.concurrent.atomic.AtomicLong;
-
 import org.junit.jupiter.api.Test;
 
 import io.micrometer.core.instrument.Counter;
@@ -50,18 +47,16 @@ class MetricsCardinalityConfigTest {
         assertThat(registry.find("terrakube.plain").counters()).hasSize(2);
     }
     @Test
-    void readmitsAnOrganizationOnceStaleValuesAgeOutOfTheRetentionWindow() {
-        AtomicLong clock = new AtomicLong(0);
+    void neverReadmitsAnOrganizationAfterThePerProcessCapIsReached() {
         SimpleMeterRegistry registry = new SimpleMeterRegistry();
-        registry.config().meterFilter(new MetricsCardinalityConfig.OrganizationTagCardinalityFilter(
-                1, Duration.ofHours(2), clock::get));
+        registry.config().meterFilter(new MetricsCardinalityConfig.OrganizationTagCardinalityFilter(1));
 
         Counter.builder("terrakube.registry.download").tag("organization", "a").register(registry);
         Counter.builder("terrakube.registry.download").tag("organization", "b").register(registry);
         assertThat(registry.find("terrakube.registry.download").counters()).hasSize(1);
 
-        clock.set(Duration.ofHours(3).toNanos());
+        // Registered meters stay exported for the process lifetime; do not admit another series.
         Counter.builder("terrakube.registry.download").tag("organization", "c").register(registry);
-        assertThat(registry.find("terrakube.registry.download").tags("organization", "c").counter()).isNotNull();
+        assertThat(registry.find("terrakube.registry.download").counters()).hasSize(1);
     }
 }

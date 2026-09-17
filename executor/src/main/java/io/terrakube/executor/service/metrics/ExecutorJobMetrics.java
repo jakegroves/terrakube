@@ -2,6 +2,10 @@ package io.terrakube.executor.service.metrics;
 
 import org.springframework.stereotype.Component;
 
+import java.util.HashMap;
+import java.util.Map;
+import java.util.Set;
+
 import io.micrometer.core.instrument.Counter;
 import io.micrometer.core.instrument.Gauge;
 import io.micrometer.core.instrument.MeterRegistry;
@@ -15,6 +19,9 @@ import io.terrakube.executor.service.executor.JobExecutionWatchdog;
  */
 @Component
 public class ExecutorJobMetrics {
+
+    private static final Set<String> RESOURCE_ACTIONS = Set.of(
+            "create", "update", "delete", "replace", "read", "import");
 
     private final MeterRegistry registry;
 
@@ -56,22 +63,26 @@ public class ExecutorJobMetrics {
      */
     public void recordResourceChanges(String phase, String organizationId,
                                       java.util.List<java.util.Map<String, Object>> changes) {
-        if (changes == null || changes.isEmpty()) {
+        if (organizationId == null || organizationId.isBlank() || changes == null || changes.isEmpty()) {
             return;
         }
         try {
+            Map<String, Integer> countByAction = new HashMap<>();
             for (java.util.Map<String, Object> change : changes) {
                 Object actionRaw = change.get("action");
-                if (!(actionRaw instanceof String action) || action.isBlank() || "no-op".equals(action)) {
+                if (!(actionRaw instanceof String action) || !RESOURCE_ACTIONS.contains(action)) {
                     continue;
                 }
+                countByAction.merge(action, 1, Integer::sum);
+            }
+            for (Map.Entry<String, Integer> entry : countByAction.entrySet()) {
                 Counter.builder("terrakube.resource.changes")
                         .tag("phase", phase)
-                        .tag("action", action)
-                        .tag("organization", String.valueOf(organizationId))
+                        .tag("action", entry.getKey())
+                        .tag("organization", organizationId)
                         .description("Resource changes seen in a plan or apply")
                         .register(registry)
-                        .increment();
+                        .increment(entry.getValue());
             }
         } catch (RuntimeException e) {
             // never let a metrics failure disturb job execution
@@ -83,10 +94,13 @@ public class ExecutorJobMetrics {
      * {@code changes}, {@code no_changes}, {@code error}.
      */
     public void recordPlanResult(String organizationId, String result) {
+        if (organizationId == null || organizationId.isBlank()) {
+            return;
+        }
         try {
             Counter.builder("terrakube.plan.result")
                     .tag("result", result)
-                    .tag("organization", String.valueOf(organizationId))
+                    .tag("organization", organizationId)
                     .description("Outcome of a plan step: changes / no_changes / error")
                     .register(registry)
                     .increment();
