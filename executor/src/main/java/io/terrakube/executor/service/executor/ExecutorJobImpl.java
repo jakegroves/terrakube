@@ -189,7 +189,8 @@ public class ExecutorJobImpl implements ExecutorJob {
         };
         io.micrometer.core.instrument.Timer.Sample executionSample = executorJobMetrics.startExecution();
 
-        switch (terraformJob.getType()) {
+        try {
+            switch (terraformJob.getType()) {
             case "terraformPlanDestroy":
             case "terraformPlan":
                 log.info("Execute Plan for Organization {} Workspace {} ", terraformJob.getOrganizationId(), terraformJob.getWorkspaceId());
@@ -232,12 +233,19 @@ public class ExecutorJobImpl implements ExecutorJob {
                 terraformResult.setOutputErrorLog("Command type not defined");
                 terraformResult.setSuccessfulExecution(false);
                 break;
-        }
+            }
 
-        boolean executionSuccess = terraformResult.isSuccessfulExecution();
-        executorJobMetrics.stopExecution(executionSample, tool, step, executionSuccess);
-        executorJobMetrics.recordExit(tool, terraformResult.getExitCode());
-        updateJobStatus.setCompletedStatus(executionSuccess, terraformResult.isPlan, terraformResult.getExitCode(), terraformJob, terraformResult.getOutputLog(), terraformResult.getOutputErrorLog(), terraformResult.getPlanFile(), commitId, terraformResult.isHasSoftMandatoryViolations(), terraformResult.getApprovalTeam());
+            boolean executionSuccess = terraformResult.isSuccessfulExecution();
+            executorJobMetrics.stopExecution(executionSample, tool, step, executionSuccess);
+            executorJobMetrics.recordExit(tool, terraformResult.getExitCode());
+            updateJobStatus.setCompletedStatus(executionSuccess, terraformResult.isPlan, terraformResult.getExitCode(), terraformJob, terraformResult.getOutputLog(), terraformResult.getOutputErrorLog(), terraformResult.getPlanFile(), commitId, terraformResult.isHasSoftMandatoryViolations(), terraformResult.getApprovalTeam());
+        } catch (RuntimeException e) {
+            // Record the failure before the async caller updates job state, so an exceptional
+            // executor path is visible in the same RED metrics as a normal non-zero exit.
+            executorJobMetrics.stopExecution(executionSample, tool, step, false);
+            executorJobMetrics.recordExit(tool, -1);
+            throw e;
+        }
     }
 
     private static String getCommitId(File workspaceFolder) {
