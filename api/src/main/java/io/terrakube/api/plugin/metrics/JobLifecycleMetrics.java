@@ -6,6 +6,7 @@ import java.util.Date;
 import java.util.function.Supplier;
 
 import org.springframework.beans.factory.annotation.Qualifier;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 
 import com.github.benmanes.caffeine.cache.Cache;
@@ -42,6 +43,8 @@ public class JobLifecycleMetrics {
     private static final int MAX_RECORDED_TERMINAL = 50_000;
 
     private final MeterRegistry registry;
+    @Value("${io.terrakube.observability.metrics.enabled:false}")
+    private boolean metricsEnabled = true;
     private final Cache<Integer, Instant> waitingApprovalSince = Caffeine.newBuilder()
             .maximumSize(MAX_PENDING_APPROVALS)
             .expireAfterWrite(STALE_APPROVAL_ENTRY)
@@ -72,6 +75,9 @@ public class JobLifecycleMetrics {
      * notify-status-changed event; a repeated status is still a meaningful "entered" count.
      */
     public void recordStatus(Job job) {
+        if (!metricsEnabled) {
+            return;
+        }
         JobStatus status = job.getStatus();
         if (status == null) {
             return;

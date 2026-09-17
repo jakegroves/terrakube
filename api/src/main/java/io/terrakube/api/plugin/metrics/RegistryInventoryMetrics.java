@@ -5,6 +5,7 @@ import java.util.List;
 
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
+import org.springframework.beans.factory.annotation.Value;
 
 import io.micrometer.core.instrument.MeterRegistry;
 import io.micrometer.core.instrument.MultiGauge;
@@ -25,6 +26,8 @@ public class RegistryInventoryMetrics {
     private final ProviderRepository providerRepository;
     private final MultiGauge modules;
     private final MultiGauge providers;
+    @Value("${io.terrakube.observability.metrics.enabled:false}")
+    private boolean metricsEnabled = true;
 
     public RegistryInventoryMetrics(MeterRegistry registry,
                                     ModuleRepository moduleRepository,
@@ -39,6 +42,9 @@ public class RegistryInventoryMetrics {
 
     @Scheduled(fixedDelayString = "${io.terrakube.metrics.registry-inventory-refresh-ms:60000}")
     public void refresh() {
+        if (!metricsEnabled) {
+            return;
+        }
         modules.register(rows(moduleRepository.countByOrganization()), true);
         providers.register(rows(providerRepository.countByOrganization()), true);
     }

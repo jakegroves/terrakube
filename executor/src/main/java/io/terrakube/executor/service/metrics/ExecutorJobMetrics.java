@@ -1,6 +1,7 @@
 package io.terrakube.executor.service.metrics;
 
 import org.springframework.stereotype.Component;
+import org.springframework.beans.factory.annotation.Value;
 
 import java.util.HashMap;
 import java.util.Map;
@@ -24,6 +25,8 @@ public class ExecutorJobMetrics {
             "create", "update", "delete", "replace", "read", "import");
 
     private final MeterRegistry registry;
+    @Value("${io.terrakube.observability.metrics.enabled:false}")
+    private boolean metricsEnabled = true;
 
     public ExecutorJobMetrics(MeterRegistry registry, JobExecutionWatchdog watchdog) {
         this.registry = registry;
@@ -33,10 +36,13 @@ public class ExecutorJobMetrics {
     }
 
     public Timer.Sample startExecution() {
-        return Timer.start(registry);
+        return metricsEnabled ? Timer.start(registry) : null;
     }
 
     public void stopExecution(Timer.Sample sample, String tool, String step, boolean success) {
+        if (!metricsEnabled || sample == null) {
+            return;
+        }
         sample.stop(Timer.builder("terrakube.job.execution")
                 .tag("tool", tool)
                 .tag("step", step)
@@ -46,6 +52,9 @@ public class ExecutorJobMetrics {
     }
 
     public void recordExit(String tool, int exitCode) {
+        if (!metricsEnabled) {
+            return;
+        }
         Counter.builder("terrakube.job.exit")
                 .tag("tool", tool)
                 .tag("exit_code_class", exitCode == 0 ? "ok" : "error")
@@ -63,7 +72,7 @@ public class ExecutorJobMetrics {
      */
     public void recordResourceChanges(String phase, String organizationId,
                                       java.util.List<java.util.Map<String, Object>> changes) {
-        if (organizationId == null || organizationId.isBlank() || changes == null || changes.isEmpty()) {
+        if (!metricsEnabled || organizationId == null || organizationId.isBlank() || changes == null || changes.isEmpty()) {
             return;
         }
         try {
@@ -94,7 +103,7 @@ public class ExecutorJobMetrics {
      * {@code changes}, {@code no_changes}, {@code error}.
      */
     public void recordPlanResult(String organizationId, String result) {
-        if (organizationId == null || organizationId.isBlank()) {
+        if (!metricsEnabled || organizationId == null || organizationId.isBlank()) {
             return;
         }
         try {
