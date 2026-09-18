@@ -452,6 +452,9 @@ function generateObservabilityVars() {
 		sed -i '/^JAVA_TOOL_OPTIONS=/d; /^OTEL_/d' "$envfile"
 		{
 			echo "JAVA_TOOL_OPTIONS=\"-javaagent:$OTEL_AGENT_JAR${prev_jto:+ $prev_jto}\""
+			echo "TerrakubePrometheusEnabled=true"
+			echo "TerrakubeObservabilityMetricsEnabled=true"
+			echo "TerrakubeStructuredLoggingFormat=ecs"
 			echo "OTEL_SERVICE_NAME=terrakube-$svc"
 			echo "OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4318"
 			echo "OTEL_EXPORTER_OTLP_PROTOCOL=http/protobuf"
