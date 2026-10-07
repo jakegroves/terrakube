@@ -139,4 +139,5 @@
     <include file="/db/changelog/local/changelog-2.34.0-job-dispatch-retry.xml"/>
     <include file="/db/changelog/local/changelog-2.34.0-cascade-schema.xml" />
     <include file="/db/changelog/local/changelog-2.34.0-cascade-notifications.xml" />
+    <include file="/db/changelog/local/changelog-2.34.0-cascade-on-destroy-plan-template.xml" />
 </databaseChangeLog>
