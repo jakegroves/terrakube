@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<databaseChangeLog
+    xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+    xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-4.3.xsd">
+
+    <!--
+      When a job entered the queue, so the UI can show how long a run has been waiting. Nullable and not
+      backfilled: old rows have finished waiting, and readers fall back to created_date. Adding a nullable column
+      is safe while old API pods are still running.
+    -->
+    <changeSet id="2-35-0-job-queued-at" author="terrakube">
+        <addColumn tableName="job">
+            <column name="queued_at" type="datetime"/>
+        </addColumn>
+    </changeSet>
+</databaseChangeLog>
