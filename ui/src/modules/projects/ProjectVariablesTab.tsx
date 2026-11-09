@@ -25,7 +25,7 @@ export default function ProjectVariablesTab({ orgid, projectId, canManage }: Pro
     if (response.isError) setError(response.error?.message ?? "Failed to load variable collections");
     else {
       setError(undefined);
-      setCollections(response.data);
+      setCollections(response.data ?? []);
     }
     setLoading(false);
   }, [orgid, projectId]);

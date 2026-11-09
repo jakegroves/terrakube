@@ -29,7 +29,7 @@ export default function ProjectPoliciesTab({ orgid, projectId }: Props) {
         setSets([]);
       } else {
         setError(undefined);
-        setSets(response.data);
+        setSets(response.data ?? []);
       }
       setLoading(false);
     });
