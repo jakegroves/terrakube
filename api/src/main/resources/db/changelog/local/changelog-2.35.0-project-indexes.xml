@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<databaseChangeLog
+    xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+    xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-4.3.xsd">
+
+    <!--
+      Project reads are filtered in SQL (see ProjectReadFilter): a project is visible when one of the caller's
+      groups appears in project_access.name, and every project page joins project_access on project_id. The table
+      had no secondary index, so both lookups scanned it. The (organization_id, name) lookup on project is already
+      served by the const_projects unique constraint.
+    -->
+    <changeSet id="2-35-0-project-access-indexes" author="terrakube">
+        <createIndex tableName="project_access" indexName="idx_project_access_project">
+            <column name="project_id"/>
+        </createIndex>
+        <createIndex tableName="project_access" indexName="idx_project_access_name">
+            <column name="name"/>
+        </createIndex>
+    </changeSet>
+</databaseChangeLog>
