@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<databaseChangeLog
+    xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+    xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-4.3.xsd">
+
+    <!--
+      The tab a project opens on. A project can set its own, otherwise the organization default applies, and when
+      neither is set the UI opens the overview. A person's own choice in their browser wins over both. Nullable
+      columns with no backfill, so this is safe while old API pods are still running.
+    -->
+    <changeSet id="2-35-0-landing-tab" author="terrakube">
+        <addColumn tableName="organization">
+            <column name="project_landing_tab" type="varchar(16)"/>
+        </addColumn>
+        <addColumn tableName="project">
+            <column name="landing_tab" type="varchar(16)"/>
+        </addColumn>
+    </changeSet>
+</databaseChangeLog>
