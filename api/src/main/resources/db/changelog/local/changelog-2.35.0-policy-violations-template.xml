@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<databaseChangeLog
+    xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+    xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-4.3.xsd">
+
+    <!--
+      Two additions for the projects list, both nullable and not backfilled so they are safe on large tables and
+      while old API pods are running.
+
+      The violation counts of a workspace's latest policy evaluation, kept next to policy_compliance_status so the
+      project summary can tell hard from soft mandatory violations without reading the evaluation history.
+
+      The workflow template new workspaces in a project start with.
+    -->
+    <changeSet id="2-35-0-workspace-policy-violations" author="terrakube">
+        <addColumn tableName="workspace">
+            <column name="policy_hard_violations" type="int"/>
+            <column name="policy_soft_violations" type="int"/>
+        </addColumn>
+    </changeSet>
+    <changeSet id="2-35-0-project-default-template" author="terrakube">
+        <addColumn tableName="project">
+            <column name="default_template" type="varchar(36)"/>
+        </addColumn>
+    </changeSet>
+</databaseChangeLog>
