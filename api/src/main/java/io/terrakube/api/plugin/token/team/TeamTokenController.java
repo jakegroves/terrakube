@@ -88,6 +88,7 @@ public class TeamTokenController {
         PermissionSet permissions = new PermissionSet();
         List<String> groups = teamTokenService.getCurrentGroups(principalJwt);
         teamRepository.findAllByOrganizationIdAndNameIn(UUID.fromString(organizationId), groups).forEach(group -> {
+            permissions.addGrant(group.getName(), group.getRole());
             permissions.setManageState(permissions.manageState || rbacService.canManageState(group));
             permissions.setManageWorkspace(permissions.manageWorkspace || rbacService.canManageWorkspace(group));
             permissions.setManageModule(permissions.manageModule || rbacService.canManageModule(group));
@@ -103,6 +104,7 @@ public class TeamTokenController {
         });
 
         if (groups.contains(instanceOwner)) {
+            permissions.addGrant(instanceOwner, "admin");
             permissions.setManagePermission(true);
             permissions.setManagePolicies(true);
         }
@@ -119,6 +121,7 @@ public class TeamTokenController {
         PermissionSet permissions = new PermissionSet();
         List<String> groups = teamTokenService.getCurrentGroups(principalJwt);
         teamRepository.findAllByOrganizationIdAndNameIn(UUID.fromString(organizationId), groups).forEach(group -> {
+            permissions.addGrant(group.getName(), group.getRole());
             permissions.setManageState(permissions.manageState || rbacService.canManageState(group));
             permissions.setManageWorkspace(permissions.manageWorkspace || rbacService.canManageWorkspace(group));
             permissions.setManageModule(permissions.manageModule || rbacService.canManageModule(group));
@@ -134,12 +137,14 @@ public class TeamTokenController {
         });
 
         if (groups.contains(instanceOwner)) {
+            permissions.addGrant(instanceOwner, "admin");
             permissions.setManagePermission(true);
             permissions.setManagePolicies(true);
         }
 
         workspaceRepository.findById(UUID.fromString(workspaceId)).ifPresent(workspace -> {
             workspace.getAccess().forEach(access -> {
+               permissions.addGrant(access.getName(), access.getRole());
                permissions.setManageState(permissions.manageState || rbacService.canManageState(access));
                permissions.setManageJob(permissions.manageJob || rbacService.canManageJob(access));
                permissions.setManageWorkspace(permissions.manageWorkspace || rbacService.canManageWorkspace(access));
@@ -150,6 +155,7 @@ public class TeamTokenController {
                 workspace.getProject().getProjectAccess().stream()
                         .filter(pa -> groups.contains(pa.getName()))
                         .forEach(pa -> {
+                            permissions.addGrant(pa.getName(), pa.getRole());
                             permissions.setManageState(permissions.manageState || rbacService.canManageState(pa));
                             permissions.setManageWorkspace(permissions.manageWorkspace || rbacService.canManageWorkspace(pa));
                             permissions.setManageJob(permissions.manageJob || rbacService.canManageJob(pa));
@@ -277,8 +283,8 @@ public class TeamTokenController {
         private boolean managePolicies;
         private boolean manageProject;
 
-        // Which teams grant the access and the highest role among them. Only filled in by the project endpoint, and
-        // left out of the JSON elsewhere so the other permission responses keep their shape.
+        // Which teams grant the access and the highest role among them. Left out of the JSON when empty, so a response
+        // for a caller in no team keeps its old shape.
         @com.fasterxml.jackson.annotation.JsonInclude(com.fasterxml.jackson.annotation.JsonInclude.Include.NON_EMPTY)
         private List<String> grantedThrough = new ArrayList<>();
         @com.fasterxml.jackson.annotation.JsonInclude(com.fasterxml.jackson.annotation.JsonInclude.Include.NON_NULL)

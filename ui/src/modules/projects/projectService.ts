@@ -144,7 +144,7 @@ async function listProjectSummaries(
               edges {
                 node {
                   id name description ownerTeam workspaceCount completedCount failedCount runningCount queuedCount
-                  waitingApprovalCount neverRunCount nonCompliantCount hardViolationCount softViolationCount compliantCount exemptedCount lockedCount attentionCount lastRunAt queuedJobCount queuedSince teamCount
+                  waitingApprovalCount neverRunCount nonCompliantCount hardViolationCount softViolationCount compliantCount exemptedCount lockedCount attentionCount cliDrivenCount vcsDrivenCount noRunStatusCount lastRunAt queuedJobCount queuedSince teamCount
                 }
               }
               pageInfo { totalRecords }
@@ -269,6 +269,8 @@ async function getUnassignedSummary(organizationId: string): Promise<ApiResponse
         ${count("compliant", "policyComplianceStatus=='COMPLIANT'")}
         ${count("locked", "locked==true")}
         ${count("attention", "(lastJobStatus=in=('failed','waitingApproval'),policyComplianceStatus=='NON_COMPLIANT')")}
+        ${count("cli", "source=='empty';branch=='remote-content'")}
+        ${count("noStatus", "source=='empty';branch=='remote-content';executionMode==local;lastJobStatus=='NeverExecuted'")}
         latest: workspace(first: "1", after: "0", sort: "-lastJobDate", filter: "${base}") { edges { node { lastJobDate } } }
       } } }
     }`,
@@ -297,6 +299,9 @@ async function getUnassignedSummary(organizationId: string): Promise<ApiResponse
     queuedJobCount: 0,
     lockedCount: 0,
     attentionCount: 0,
+    cliDrivenCount: 0,
+    vcsDrivenCount: 0,
+    noRunStatusCount: 0,
     teamCount: 0,
   };
   if (result.isError) return { isError: true, responseCode: result.responseCode, error: result.error, data: blank };
@@ -318,6 +323,9 @@ async function getUnassignedSummary(organizationId: string): Promise<ApiResponse
       compliantCount: total("compliant"),
       lockedCount: total("locked"),
       attentionCount: total("attention"),
+      cliDrivenCount: total("cli"),
+      vcsDrivenCount: total("total") - total("cli"),
+      noRunStatusCount: total("noStatus"),
       lastRunAt: node.latest?.edges?.[0]?.node?.lastJobDate ?? undefined,
     },
   };
