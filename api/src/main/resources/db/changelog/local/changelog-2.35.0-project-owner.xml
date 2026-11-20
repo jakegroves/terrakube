@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<databaseChangeLog
+    xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+    xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-4.3.xsd">
+
+    <!--
+      The team that owns a project, by name, so a list can say whose a workspace is and the inbox can show what
+      waits on a person's teams. A name, not a foreign key: teams come from the identity provider's groups. Nullable
+      and not backfilled, so a project without an owner behaves as before, and this is safe while old API pods run.
+    -->
+    <changeSet id="2-35-0-project-owner" author="terrakube">
+        <addColumn tableName="project">
+            <column name="owner_team" type="varchar(256)"/>
+        </addColumn>
+    </changeSet>
+</databaseChangeLog>

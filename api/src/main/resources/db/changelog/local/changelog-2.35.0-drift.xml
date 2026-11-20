@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<databaseChangeLog
+    xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+    xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-4.3.xsd">
+
+    <!--
+      Drift: whether what is deployed still matches the code. A scheduled run of a plan-only template is a drift
+      check, and when its plan has changes the workspace is drifted. The workspace keeps the current state and when it
+      was first seen; the job keeps the result of each check, so a workspace can show its history of checks.
+      Nullable and not backfilled: a workspace that was never checked has no drift state, and this is safe while old
+      API pods are still running. The index serves the count and the filter of drifted workspaces per organization.
+    -->
+    <changeSet id="2-35-0-drift" author="terrakube">
+        <addColumn tableName="workspace">
+            <column name="drift_status" type="varchar(8)"/>
+            <column name="drift_first_seen" type="datetime"/>
+            <column name="drift_last_checked" type="datetime"/>
+            <column name="drift_job_id" type="int"/>
+        </addColumn>
+        <addColumn tableName="job">
+            <column name="drift_result" type="varchar(8)"/>
+        </addColumn>
+        <createIndex tableName="workspace" indexName="idx_workspace_org_drift">
+            <column name="organization_id"/>
+            <column name="deleted"/>
+            <column name="drift_status"/>
+        </createIndex>
+    </changeSet>
+</databaseChangeLog>

@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<databaseChangeLog
+    xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+    xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-4.3.xsd">
+
+    <!--
+      How many resources a plan adds, changes and destroys, so a run list can say what a run does without opening
+      it. Nullable and not backfilled: a plan that ran before this release, or one that failed, has no summary and
+      the UI shows nothing for it. Adding nullable columns is safe while old API pods are still running.
+    -->
+    <changeSet id="2-35-0-job-plan-summary" author="terrakube">
+        <addColumn tableName="job">
+            <column name="plan_add" type="int"/>
+            <column name="plan_change" type="int"/>
+            <column name="plan_destroy" type="int"/>
+        </addColumn>
+    </changeSet>
+</databaseChangeLog>

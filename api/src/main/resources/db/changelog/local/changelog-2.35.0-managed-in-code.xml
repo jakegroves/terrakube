@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<databaseChangeLog
+    xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+    xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-4.3.xsd">
+
+    <!--
+      An organization that is kept in code names the repository, so its settings screens can say that an edit made
+      there is reverted by the next apply, and optionally make them read-only. Both nullable and not backfilled: an
+      organization without them behaves as before, and this is safe while old API pods are still running.
+    -->
+    <changeSet id="2-35-0-managed-in-code" author="terrakube">
+        <addColumn tableName="organization">
+            <column name="managed_in_code_repository" type="varchar(512)"/>
+            <column name="managed_in_code_mode" type="varchar(16)"/>
+        </addColumn>
+    </changeSet>
+</databaseChangeLog>

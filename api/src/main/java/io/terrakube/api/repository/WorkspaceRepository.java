@@ -21,6 +21,18 @@ import java.util.UUID;
 
 public interface WorkspaceRepository extends JpaRepository<Workspace, UUID> {
 
+    /**
+     * Records the result of a drift check on its own columns. A save of the whole entity would write back every
+     * column the entity was loaded with, so a drift check finishing while a run of the workspace is being recorded
+     * could undo the other's change.
+     */
+    @org.springframework.transaction.annotation.Transactional
+    @Modifying
+    @Query("update workspace w set w.driftStatus = :status, w.driftFirstSeen = :firstSeen, "
+            + "w.driftLastChecked = :checked, w.driftJobId = :jobId where w.id = :id")
+    int updateDrift(@Param("id") UUID id, @Param("status") String status, @Param("firstSeen") Date firstSeen,
+                    @Param("checked") Date checked, @Param("jobId") Integer jobId);
+
     /** A page of the ids of the project's workspaces (soft deleted ones are excluded by the entity restriction). */
     @Query("select w.id from workspace w where w.project = :project order by w.id")
     Page<UUID> findIdsByProject(@Param("project") io.terrakube.api.rs.project.Project project, Pageable pageable);

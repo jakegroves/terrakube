@@ -47,6 +47,10 @@ public class ContextController {
 
     private final ObjectMapper objectMapper;
 
+    // Field-injected and optional so the many places that build a controller by hand need not change.
+    @Autowired(required = false)
+    private PlanSummaryRecorder planSummaryRecorder;
+
     @Autowired
     public ContextController(
             ContextSanitizer contextSanitizer,
@@ -174,8 +178,10 @@ public class ContextController {
 
         // Validated before the write lock is taken.
         ContextPatchApplier.Patch parsed;
+        com.fasterxml.jackson.databind.JsonNode body;
         try {
-            parsed = ContextPatchApplier.parse(objectMapper.readTree(patch), System.currentTimeMillis());
+            body = objectMapper.readTree(patch);
+            parsed = ContextPatchApplier.parse(body, System.currentTimeMillis());
         } catch (JacksonException | InvalidContextPatchException e) {
             log.warn("Invalid context patch for job {}", jobId);
             return new ResponseEntity<>("{}", HttpStatus.BAD_REQUEST);
@@ -192,6 +198,15 @@ public class ContextController {
         }
         if (policyEvaluationService != null && result.applied().contains("policyEvaluation")) {
             policyEvaluationService.processPolicyEvaluationContext(jobId, result.context());
+        }
+        // Only when the plan was stored by this patch, so a retried or reordered write does not count twice.
+        if (planSummaryRecorder != null && result.applied().stream().anyMatch(key -> key.startsWith("planStructuredOutput/"))) {
+            try {
+                planSummaryRecorder.recordFromPatch(jobId, body);
+            } catch (RuntimeException e) {
+                // A summary is a convenience for the run list and must never fail the executor's write.
+                log.warn("Could not record the plan summary of job {}: {}", jobId, e.getMessage());
+            }
         }
         return new ResponseEntity<>("{\"applied\":" + result.applied().size() + ",\"skipped\":" + result.skipped() + "}", HttpStatus.OK);
     }

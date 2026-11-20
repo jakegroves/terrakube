@@ -20,6 +20,22 @@ import java.util.UUID;
 
 public interface JobRepository extends JpaRepository<Job, Integer> {
 
+    /** Records what the plan of a run adds, changes and destroys, without writing back the rest of the run. */
+    @org.springframework.transaction.annotation.Transactional
+    @org.springframework.data.jpa.repository.Modifying
+    @org.springframework.data.jpa.repository.Query("update job j set j.planAdd = :add, j.planChange = :change, j.planDestroy = :destroy where j.id = :id")
+    int updatePlanSummary(@org.springframework.data.repository.query.Param("id") int id,
+                          @org.springframework.data.repository.query.Param("add") int add,
+                          @org.springframework.data.repository.query.Param("change") int change,
+                          @org.springframework.data.repository.query.Param("destroy") int destroy);
+
+    /** Records whether a run was a drift check and what it found, without writing back the rest of the run. */
+    @org.springframework.transaction.annotation.Transactional
+    @org.springframework.data.jpa.repository.Modifying
+    @org.springframework.data.jpa.repository.Query("update job j set j.driftResult = :result where j.id = :id")
+    int updateDriftResult(@org.springframework.data.repository.query.Param("id") int id,
+                          @org.springframework.data.repository.query.Param("result") String result);
+
     // Status sets for JPQL FIFO dispatch-ordering queries below, matching the lists
     // ScheduleJob.runExecution uses in Java.
     String ACTIVE_JOB_STATUSES = "io.terrakube.api.rs.job.JobStatus.pending, io.terrakube.api.rs.job.JobStatus.approved";

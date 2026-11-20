@@ -205,6 +205,31 @@ public class Job extends GenericAuditFields {
     @Column(name = "plan_changes")
     private boolean planChanges = true;
 
+    // What the plan of this run adds, changes and destroys (a replacement counts as one add and one destroy), so a
+    // run list can say what a run does without opening it. Null when the plan has no summary. Written by the API
+    // itself from the final plan snapshot (PlanSummaryRecorder), never through a request: an update of a job wakes
+    // the scheduler again. The apply of a run never reads it.
+    @CreatePermission(expression = "NONE")
+    @UpdatePermission(expression = "NONE")
+    @Column(name = "plan_add")
+    private Integer planAdd;
+
+    @CreatePermission(expression = "NONE")
+    @UpdatePermission(expression = "NONE")
+    @Column(name = "plan_change")
+    private Integer planChange;
+
+    @CreatePermission(expression = "NONE")
+    @UpdatePermission(expression = "NONE")
+    @Column(name = "plan_destroy")
+    private Integer planDestroy;
+
+    // "drift" or "clean" for a run that was a drift check, null for every other run. Written by the API itself.
+    @CreatePermission(expression = "NONE")
+    @UpdatePermission(expression = "NONE")
+    @Column(name = "drift_result")
+    private String driftResult;
+
     @Column(name = "refresh_only")
     private boolean refreshOnly = false;
 
